@@ -50,6 +50,11 @@ Also, you can define many `wcar*`-like macros to use other sentinel group and ma
 
 At last, you can use `wcar*` as the same in carmine.
 
+```clojure
+(wcar* (car/set "key" 1))
+(wcar* (car/get "key"))
+```
+
 ## Failover
 
 Carmine-sentinel will connect the first sentinel instance, if if fails, carmine-sentinel will try the next sentinel until find a resolved master address or throw an exception.The resolved addr will be cached in memory.
