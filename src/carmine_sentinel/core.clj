@@ -14,13 +14,24 @@
    :arguments [{:name "name",
                 :type "string"}]})
 
+(defn- make-sure-role
+  "Make sure the spec is a master role."
+  [spec]
+  (when-not (=
+             "master"
+             (first (car/wcar {:spec spec}
+                              (car/role))))
+    (throw (IllegalStateException.
+            (format "Spec %s is not master role." spec)))))
+
 (defn- ask-sentinel-master [master-name]
   (if-let [conn @sentinels-conn]
     (if-let [master (car/wcar {:spec (-> conn :specs rand-nth)}
                               (sentinel-get-master-addr-by-name master-name))]
       (let [spec {:host (first master)
                   :port (Integer/valueOf ^String (second master))}]
-        (swap! sentinels-conn assoc master-name spec)
+        (make-sure-role spec)
+        (swap! sentinel-masters assoc master-name spec)
         spec)
       (throw (IllegalStateException. (str "Master addr not found by name: " master-name))))
     (throw (IllegalStateException. "Please calling `set-sentinel-conn!` at first."))))
