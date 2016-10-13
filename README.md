@@ -1,7 +1,6 @@
 # carmine-sentinel
 
-A Clojure library designed to connect redis by [sentinel](redis.io/topics/sentinel), make [carmine](https://
-github.com/ptaoussanis/carmine) to support [sentinel](redis.io/topics/sentinel)。
+A Clojure library designed to connect redis by [sentinel](redis.io/topics/sentinel), make [carmine](https://github.com/ptaoussanis/carmine) to support [sentinel](redis.io/topics/sentinel)。
 
 ## Usage
 
