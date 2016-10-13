@@ -2,8 +2,9 @@
   (:require [taoensso.carmine :as car]
             [taoensso.carmine.commands :as cmds]))
 
+;; sentinel group -> master-name -> spec
 (defonce sentinel-masters (atom nil))
-
+;; sentinel group -> specs
 (defonce sentinels-conn (atom nil))
 
 ;;define command sentinel-get-master-addr-by-name
@@ -24,24 +25,26 @@
     (throw (IllegalStateException.
             (format "Spec %s is not master role." spec)))))
 
-(defn- ask-sentinel-master [master-name]
-  (if-let [conn @sentinels-conn]
+(defn- ask-sentinel-master [sg master-name]
+  (if-let [conn (get @sentinels-conn sg)]
     (if-let [master (car/wcar {:spec (-> conn :specs rand-nth)}
                               (sentinel-get-master-addr-by-name master-name))]
       (let [spec {:host (first master)
                   :port (Integer/valueOf ^String (second master))}]
         (make-sure-role spec)
-        (swap! sentinel-masters assoc master-name spec)
+        (swap! sentinel-masters assoc-in [sg master-name] spec)
         spec)
       (throw (IllegalStateException. (str "Master addr not found by name: " master-name))))
-    (throw (IllegalStateException. "Please calling `set-sentinel-conn!` at first."))))
+    (throw (IllegalStateException. (str "Missing specs for sentinel group: " sg)))))
 
-(defn get-sentinel-master-spec [master-name]
+(defn get-sentinel-master-spec [sg master-name]
+  (when (nil? sg)
+    (throw (IllegalStateException. "Missing sentinel-group.")))
   (when (empty? master-name)
-    (throw (IllegalArgumentException. "Missing master-name.")))
-  (if-let [spec (get @sentinel-masters master-name)]
+    (throw (IllegalStateException. "Missing master-name.")))
+  (if-let [spec (get-in @sentinel-masters [sg master-name])]
     spec
-    (ask-sentinel-master master-name)))
+    (ask-sentinel-master sg master-name)))
 
 (defn set-sentinel-conn!
   "Configure sentinel specs:
@@ -54,19 +57,13 @@
   It's a list of sentinel instance process spec:
   ."
   [conn]
-  (if (empty? (:specs conn))
-    (throw (IllegalArgumentException. "Empty sentinel specs."))
-    (reset! sentinels-conn conn)))
+  (reset! sentinels-conn conn))
 
 (defmacro wcar
   "It's the same as taoensso.carmine/wcar, but supports
-      :sentinel-specs [{:host host
-                        :port port
-                        :password password
-                        :timeout-ms timeout-ms}
-                        ...
-                      ]
-   in conn.
+      :master-name \"mymaster\"
+      :sentinel-group :default
+   in conn for redis sentinel cluster.
   "
   {:arglists '([conn :as-pipeline & body] [conn & body])}
   [conn & sigs]
@@ -74,7 +71,7 @@
     (update ~conn
             :spec
             merge
-            (-> ~conn
-                :master-name
-                (get-sentinel-master-spec)))
+            (->> ~conn
+                 :master-name
+                 (get-sentinel-master-spec (:sentinel-group ~conn))))
     ~@sigs))
