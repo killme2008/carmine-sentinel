@@ -1,7 +1,7 @@
 # carmine-sentinel
 
-A Clojure library designed to connect redis by sentinel, make [carmine](https://
-github.com/ptaoussanis/carmine) to support sentinel。
+A Clojure library designed to connect redis by [sentinel](redis.io/topics/sentinel), make [carmine](https://
+github.com/ptaoussanis/carmine) to support [sentinel](redis.io/topics/sentinel)。
 
 ## Usage
 
@@ -9,7 +9,7 @@ github.com/ptaoussanis/carmine) to support sentinel。
 [net.fnil/carmine-sentinel "0.1.0-beta"]
 ```
 
-It's a beta release, you can try it and feedback is welcome.
+It's a beta release, you can try it.Feedback is welcome.
 
 First, require carmine and carmine-sentinel:
 
@@ -52,7 +52,7 @@ At last, you can use `wcar*` as the same in carmine.
 
 ## Failover
 
-Carmine-sentinel will connect the first sentinel instance, if if fails, carmine-sentinel will try the next sentinel until find a resolved master address or throw an exception.
+Carmine-sentinel will connect the first sentinel instance, if if fails, carmine-sentinel will try the next sentinel until find a resolved master address or throw an exception.The resolved addr will be cached in memory.
 
 And Carmine-sentinel subcribes `+switch-master` channel in sentinel.When the master redis instance is down, sentinel will publish a `+switch-master` message, when carmine-sentinel receives this message, it will try to connect the new redis master at once.
 
