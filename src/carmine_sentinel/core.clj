@@ -5,7 +5,7 @@
 ;; sentinel group -> master-name -> spec
 (defonce sentinel-masters (atom nil))
 ;; sentinel group -> specs
-(defonce sentinels-conn (atom nil))
+(defonce sentinel-groups (atom nil))
 
 ;;define command sentinel-get-master-addr-by-name
 (cmds/defcommand "SENTINEL get-master-addr-by-name"
@@ -26,7 +26,7 @@
             (format "Spec %s is not master role." spec)))))
 
 (defn- ask-sentinel-master [sg master-name]
-  (if-let [conn (get @sentinels-conn sg)]
+  (if-let [conn (get @sentinel-groups sg)]
     (if-let [master (car/wcar {:spec (-> conn :specs rand-nth)}
                               (sentinel-get-master-addr-by-name master-name))]
       (let [spec {:host (first master)
@@ -46,7 +46,7 @@
     spec
     (ask-sentinel-master sg master-name)))
 
-(defn set-sentinel-conn!
+(defn set-sentinel-groups!
   "Configure sentinel specs:
    {:specs  [{ :host host
                :port port
@@ -56,8 +56,8 @@
     :pool {<opts>}}
   It's a list of sentinel instance process spec:
   ."
-  [conn]
-  (reset! sentinels-conn conn))
+  [conf]
+  (reset! sentinel-groups conf))
 
 (defmacro wcar
   "It's the same as taoensso.carmine/wcar, but supports
