@@ -57,9 +57,9 @@ At last, you can use `wcar*` as the same in carmine.
 
 ## Failover
 
-Carmine-sentinel will connect the first sentinel instance, if if fails, carmine-sentinel will try the next sentinel until find a resolved master address or throw an exception.The resolved addr will be cached in memory.
+Carmine-sentinel will connect the first sentinel instance to resolve the master address, if if fails, carmine-sentinel will try the next sentinel until find a resolved master address or throw an exception.The resolved addr will be cached in memory.
 
-And Carmine-sentinel subcribes `+switch-master` channel in sentinel.When the master redis instance is down, sentinel will publish a `+switch-master` message, when carmine-sentinel receives this message, it will try to connect the new redis master at once.
+And Carmine-sentinel subcribes `+switch-master` channel in sentinel.When the master redis instance is down, sentinel will publish a `+switch-master` message, while carmine-sentinel receives this message, it will clean the last cached result and try to connect the new redis master at once.
 
 ## License
 
