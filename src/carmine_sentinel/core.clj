@@ -3,11 +3,13 @@
             [taoensso.carmine.commands :as cmds]))
 
 ;; sentinel group -> master-name -> spec
-(defonce sentinel-masters (atom nil))
+(defonce ^:private sentinel-masters (atom nil))
 ;; sentinel group -> specs
-(defonce sentinel-groups (atom nil))
+(defonce ^:private sentinel-groups (atom nil))
 ;; sentinel listeners
-(defonce sentinel-listeners (atom nil))
+(defonce ^:private sentinel-listeners (atom nil))
+;; sentinel listeners
+(defonce ^:private event-listeners (atom []))
 
 ;;define command sentinel-get-master-addr-by-name
 (cmds/defcommand "SENTINEL get-master-addr-by-name"
@@ -38,18 +40,24 @@
       m)
     (dissoc m k)))
 
-(defn remove-last-resolved-addr!
-  "Remove last resolved addr by sentinel group and master name."
-  [sg master-name]
-  (swap! sentinel-masters dissoc-in [sg master-name]))
+(defn notify-event-listeners [event]
+  (doseq [listener @event-listeners]
+    (try
+      (listener event)
+      (catch Exception _))))
 
 (defn- handle-switch-master [sg msg]
   (when (= "message" (first msg))
     (let [[master-name old-ip old-port new-ip new-port]
           (clojure.string/split (-> msg nnext first)  #" ")]
       (when master-name
-        ;;remove last resolved addr
-        (swap! sentinel-masters dissoc-in [sg master-name])))))
+        ;;remove last resolved spec
+        (swap! sentinel-masters dissoc-in [sg master-name])
+        (notify-event-listeners {:event :switch-master
+                                 :old {:host old-ip
+                                       :port (Integer/valueOf old-port)}
+                                 :new {:host new-ip
+                                       :port (Integer/valueOf new-port)}})))))
 
 (defn- subscribe-switch-master! [sg spec]
   (if-let [listener (get @sentinel-listeners spec)]
@@ -62,7 +70,7 @@
                 (car/subscribe "+switch-master"))))
       (recur sg spec))))
 
-(defn- try-resolve-master-addr [specs sg master-name]
+(defn- try-resolve-master-spec [specs sg master-name]
   (let [sentinel-spec (first specs)]
     (try
       (when-let [master (car/wcar {:spec sentinel-spec}
@@ -75,26 +83,35 @@
           master-spec))
       (catch Exception _
         ;;Close the listener
-        (when-let [listener (get @sentinel-listeners sentinel-spec)]
-          (car/close-listener @listener)
-          (swap! sentinel-listeners dissoc sentinel-spec))
+        (try
+          (when-let [listener (get @sentinel-listeners sentinel-spec)]
+            (car/close-listener @listener)
+            (swap! sentinel-listeners dissoc sentinel-spec))
+          (catch Exception _))
         nil))))
 
 (defn- ask-sentinel-master [sg master-name]
   (if-let [conn (get @sentinel-groups sg)]
     (loop [specs (-> conn :specs)]
       (if (seq specs)
-        (if-let [ms (try-resolve-master-addr specs sg master-name)]
+        (if-let [ms (try-resolve-master-spec specs sg master-name)]
           ms
           ;;Try next sentinel
           (recur (next specs)))
-        (throw (IllegalStateException. (str "Master addr not found by name: " master-name)))))
+        (throw (IllegalStateException. (str "Master spec not found by name: " master-name)))))
     (throw (IllegalStateException. (str "Missing specs for sentinel group: " sg)))))
 
+;;APIs
+(defn register-listener! [listener]
+  (swap! event-listeners conj listener))
+
+(defn unregister-listener! [listener]
+  (swap! event-listeners remove (partial = listener)))
 
 (defn get-sentinel-master-spec
   "Get redis spec by sentinel-group and master name.
-   If it is not resolved, it will query from sentinel and cache the result."
+   If it is not resolved, it will query from sentinel and
+   cache the result in memory."
   [sg master-name]
   (when (nil? sg)
     (throw (IllegalStateException. "Missing sentinel-group.")))
@@ -116,6 +133,11 @@
   ."
   [conf]
   (reset! sentinel-groups conf))
+
+(defn remove-last-resolved-spec!
+  "Remove last resolved master spec by sentinel group and master name."
+  [sg master-name]
+  (swap! sentinel-masters dissoc-in [sg master-name]))
 
 (defmacro wcar
   "It's the same as taoensso.carmine/wcar, but supports
