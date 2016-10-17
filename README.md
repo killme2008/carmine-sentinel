@@ -8,6 +8,8 @@ A Clojure library designed to connect redis by [sentinel](redis.io/topics/sentin
 [net.fnil/carmine-sentinel "0.1.0-RC1"]
 ```
 
+Carmine-sentinel require carmine must be `2.14.0`right now.
+
 It's a beta release, you can try it.Feedback is welcome.
 
 First, require carmine and carmine-sentinel:
@@ -23,9 +25,9 @@ The only difference compares with carmine is that we will use `carmine-sentinel.
 Second, configure sentinel groups:
 
 ```clojure
-(set-sentinel-groups! 
-  {:group1 
-   {:specs [{:host "127.0.0.1" :port 5000} {:host "127.0.0.1" :port 5001} {:host "127.0.0.1" :port 5002}] 
+(set-sentinel-groups!
+  {:group1
+   {:specs [{:host "127.0.0.1" :port 5000} {:host "127.0.0.1" :port 5001} {:host "127.0.0.1" :port 5002}]
     :pool  {<opts>} }})
 ```
 
@@ -75,13 +77,13 @@ You have to invoke `update-conn-spec` before using other APIs in carmine:
    {:handler (fn [{:keys [message attempt]}]
                (println "Received" message)
                {:status :success})}))
-   
+
 
 ;;;Lock
 (locks/with-lock (cs/update-conn-spec server1-conn) "my-lock"
   1000 ; Time to hold lock
   500  ; Time to wait (block) for lock acquisition
-  (println "This was printed under lock!"))  
+  (println "This was printed under lock!"))
 ```
 
 ## Reading From Slaves
@@ -89,8 +91,8 @@ You have to invoke `update-conn-spec` before using other APIs in carmine:
 If you want to read data from slave, you can set `prefer-slave?` to be true:
 
 ```clojure
-(def slave-conn {:pool {<opts>} :spec {} 
-                 :sentinel-group :group1 :master-name "mymaster" 
+(def slave-conn {:pool {<opts>} :spec {}
+                 :sentinel-group :group1 :master-name "mymaster"
                  :prefer-slave? true})
 
 (defmacro wcars* [& body] `(cs/wcar slave-conn ~@body))
