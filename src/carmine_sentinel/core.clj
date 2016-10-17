@@ -1,6 +1,7 @@
 (ns carmine-sentinel.core
   (:require [taoensso.carmine :as car]
-            [taoensso.carmine.commands :as cmds]))
+            [taoensso.carmine.commands :as cmds]
+            [taoensso.carmine.locks :as locks]))
 
 ;; sentinel group -> master-name -> spec
 (defonce ^:private sentinel-masters (atom nil))
@@ -92,12 +93,20 @@
 
 (defn- ask-sentinel-master [sg master-name]
   (if-let [conn (get @sentinel-groups sg)]
-    (loop [specs (-> conn :specs)]
+    (loop [specs (-> conn :specs)
+           tried-specs []]
       (if (seq specs)
         (if-let [ms (try-resolve-master-spec specs sg master-name)]
-          ms
+          (do
+            ;;Move the sentinel instance to the first position of sentinel list
+            ;;to speedup next time resolving.
+            (swap! sentinel-groups assoc-in [sg :specs]
+                   (vec
+                    (concat specs tried-specs)))
+            ms)
           ;;Try next sentinel
-          (recur (next specs)))
+          (recur (next specs)
+                 (conj tried-specs (first specs))))
         (throw (IllegalStateException. (str "Master spec not found by name: " master-name)))))
     (throw (IllegalStateException. (str "Missing specs for sentinel group: " sg)))))
 
@@ -139,6 +148,18 @@
   [sg master-name]
   (swap! sentinel-masters dissoc-in [sg master-name]))
 
+(defn update-conn-spec
+  "Cast a carmine-sentinel conn to carmine raw conn spec.
+   It will resolve master from sentinel first time,then cache the result in
+   memory for reusing."
+  [conn]
+  (update conn
+          :spec
+          merge
+          (->> conn
+               :master-name
+               (get-sentinel-master-spec (:sentinel-group conn)))))
+
 (defmacro wcar
   "It's the same as taoensso.carmine/wcar, but supports
       :master-name \"mymaster\"
@@ -148,10 +169,5 @@
   {:arglists '([conn :as-pipeline & body] [conn & body])}
   [conn & sigs]
   `(car/wcar
-    (update ~conn
-            :spec
-            merge
-            (->> ~conn
-                 :master-name
-                 (get-sentinel-master-spec (:sentinel-group ~conn))))
+    (update-conn-spec ~conn)
     ~@sigs))
