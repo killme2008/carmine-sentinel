@@ -20,6 +20,13 @@
    :arguments [{:name "name",
                 :type "string"}]})
 
+(cmds/defcommand "SENTINEL sentinels"
+  {
+   :summary "get sentinel instances by mater name.",
+   :complexity "O(1)",
+   :arguments [{:name "name",
+                :type "string"}]})
+
 (defn- make-sure-role
   "Make sure the spec is a master role."
   [spec]
@@ -54,7 +61,7 @@
       (when master-name
         ;;remove last resolved spec
         (swap! sentinel-masters dissoc-in [sg master-name])
-        (notify-event-listeners {:event :switch-master
+        (notify-event-listeners {:event "+switch-master"
                                  :old {:host old-ip
                                        :port (Integer/valueOf old-port)}
                                  :new {:host new-ip
@@ -74,14 +81,23 @@
 (defn- try-resolve-master-spec [specs sg master-name]
   (let [sentinel-spec (first specs)]
     (try
-      (when-let [master (car/wcar {:spec sentinel-spec}
-                                  (sentinel-get-master-addr-by-name master-name))]
+      (when-let [[master sinstances]
+                 (car/wcar {:spec sentinel-spec} :as-pipeline
+                           (sentinel-get-master-addr-by-name master-name)
+                           (sentinel-sentinels master-name))]
         (subscribe-switch-master! sg sentinel-spec)
         (let [master-spec {:host (first master)
-                           :port (Integer/valueOf ^String (second master))}]
+                           :port (Integer/valueOf ^String (second master))}
+              ;;Server returned sentinel specs
+              rs-specs (->> sinstances
+                            (map (partial apply hash-map))
+                            (map (fn [{:strs [ip port]}]
+                                   {:host ip
+                                    :port (Integer/valueOf ^String port)})))]
           (make-sure-role master-spec)
           (swap! sentinel-masters assoc-in [sg master-name] master-spec)
-          master-spec))
+
+          [master-spec rs-specs]))
       (catch Exception _
         ;;Close the listener
         (try
@@ -96,13 +112,16 @@
     (loop [specs (-> conn :specs)
            tried-specs []]
       (if (seq specs)
-        (if-let [ms (try-resolve-master-spec specs sg master-name)]
+        (if-let [[ms rs-specs] (try-resolve-master-spec specs sg master-name)]
           (do
             ;;Move the sentinel instance to the first position of sentinel list
             ;;to speedup next time resolving.
             (swap! sentinel-groups assoc-in [sg :specs]
                    (vec
-                    (concat specs tried-specs)))
+                    (concat specs tried-specs
+                            ;;adds server returned new sentinel specs to tail.
+                            (remove (apply hash-set (:specs conn))
+                                    rs-specs))))
             ms)
           ;;Try next sentinel
           (recur (next specs)
@@ -111,10 +130,21 @@
     (throw (IllegalStateException. (str "Missing specs for sentinel group: " sg)))))
 
 ;;APIs
-(defn register-listener! [listener]
+(defn register-listener!
+  "Register listener for switching master.
+  The listener will be called with an event:
+    {:event \"+switch-master\"
+     :old {:host old-master-ip
+           :port old-master-port
+     :new {:host new-master-ip
+           :port new-master-port}}}
+  "
+  [listener]
   (swap! event-listeners conj listener))
 
-(defn unregister-listener! [listener]
+(defn unregister-listener!
+  "Remove the listener for switching master."
+  [listener]
   (swap! event-listeners remove (partial = listener)))
 
 (defn get-sentinel-master-spec
