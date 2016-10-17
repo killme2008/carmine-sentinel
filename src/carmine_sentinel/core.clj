@@ -4,7 +4,7 @@
             [taoensso.carmine.locks :as locks]))
 
 ;; sentinel group -> master-name -> spec
-(defonce ^:private sentinel-masters (atom nil))
+(defonce ^:private sentinel-resolved-specs (atom nil))
 ;; sentinel group -> specs
 (defonce ^:private sentinel-groups (atom nil))
 ;; sentinel listeners
@@ -68,7 +68,7 @@
           (clojure.string/split (-> msg nnext first)  #" ")]
       (when master-name
         ;;remove last resolved spec
-        (swap! sentinel-masters dissoc-in [sg master-name])
+        (swap! sentinel-resolved-specs dissoc-in [sg master-name])
         (notify-event-listeners {:event "+switch-master"
                                  :old {:host old-ip
                                        :port (Integer/valueOf ^String old-port)}
@@ -81,7 +81,7 @@
     (do
       (swap! sentinel-listeners assoc spec
              (delay
-              (car/with-new-pubsub-listener spec
+              (car/with-new-pubsub-listener (dissoc spec :timeout-ms)
                 {"+switch-master" (partial handle-switch-master sg)}
                 (car/subscribe "+switch-master"))))
       (recur sg spec))))
@@ -109,8 +109,8 @@
                                    {:host ip
                                     :port (Integer/valueOf ^String port)})))]
           (make-sure-role master-spec)
-          (swap! sentinel-masters assoc-in [sg master-name] {:master master-spec
-                                                             :slaves slaves})
+          (swap! sentinel-resolved-specs assoc-in [sg master-name] {:master master-spec
+                                                                    :slaves slaves})
 
           [master-spec slaves rs-specs]))
       (catch Exception _
@@ -167,7 +167,7 @@
   [listener]
   (swap! event-listeners remove (partial = listener)))
 
-(defn get-sentinel-master-spec
+(defn get-sentinel-redis-spec
   "Get redis spec by sentinel-group and master name.
    If it is not resolved, it will query from sentinel and
    cache the result in memory.
@@ -181,7 +181,7 @@
     (throw (IllegalStateException. "Missing sentinel-group.")))
   (when (empty? master-name)
     (throw (IllegalStateException. "Missing master-name.")))
-  (if-let [ret (get-in @sentinel-masters [sg master-name])]
+  (if-let [ret (get-in @sentinel-resolved-specs [sg master-name])]
     (if-let [s (choose-spec (:master ret)
                             (:slaves ret)
                             prefer-slave?
@@ -211,7 +211,7 @@
 (defn remove-last-resolved-spec!
   "Remove last resolved master spec by sentinel group and master name."
   [sg master-name]
-  (swap! sentinel-masters dissoc-in [sg master-name]))
+  (swap! sentinel-resolved-specs dissoc-in [sg master-name]))
 
 (defn update-conn-spec
   "Cast a carmine-sentinel conn to carmine raw conn spec.
@@ -221,9 +221,9 @@
   (update conn
           :spec
           merge
-          (get-sentinel-master-spec (:sentinel-group conn)
-                                    (:master-name conn)
-                                    conn)))
+          (get-sentinel-redis-spec (:sentinel-group conn)
+                                   (:master-name conn)
+                                   conn)))
 
 (defmacro wcar
   "It's the same as taoensso.carmine/wcar, but supports
