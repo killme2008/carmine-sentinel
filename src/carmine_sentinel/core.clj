@@ -71,9 +71,9 @@
         (swap! sentinel-masters dissoc-in [sg master-name])
         (notify-event-listeners {:event "+switch-master"
                                  :old {:host old-ip
-                                       :port (Integer/valueOf old-port)}
+                                       :port (Integer/valueOf ^String old-port)}
                                  :new {:host new-ip
-                                       :port (Integer/valueOf new-port)}})))))
+                                       :port (Integer/valueOf ^String new-port)}})))))
 
 (defn- subscribe-switch-master! [sg spec]
   (if-let [listener (get @sentinel-listeners spec)]

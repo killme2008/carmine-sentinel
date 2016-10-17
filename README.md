@@ -5,7 +5,7 @@ A Clojure library designed to connect redis by [sentinel](redis.io/topics/sentin
 ## Usage
 
 ```clojure
-[net.fnil/carmine-sentinel "0.1.0-beta"]
+[net.fnil/carmine-sentinel "0.1.0-RC1"]
 ```
 
 It's a beta release, you can try it.Feedback is welcome.
@@ -54,11 +54,74 @@ At last, you can use `wcar*` as the same in carmine.
 (wcar* (car/get "key"))
 ```
 
+## Pub/Sub, MessageQueue and Lock
+
+You have to invoke `update-conn-spec` before using other APIs in carmine:
+
+```clojure
+(def server1-conn {:pool {<opts>} :spec {} :sentinel-group :group1 :master-name "mymaster"})
+
+;;Pub/Sub
+(def listener
+  (car/with-new-pubsub-listener (:spec (cs/update-conn-spec server1-conn))
+    {"foobar" (fn f1 [msg] (println "Channel match: " msg))
+     "foo*"   (fn f2 [msg] (println "Pattern match: " msg))}
+   (car/subscribe  "foobar" "foobaz")
+   (car/psubscribe "foo*")))
+
+;;Message queue
+(def my-worker
+  (car-mq/worker (cs/update-conn-spec server1-conn) "my-queue"
+   {:handler (fn [{:keys [message attempt]}]
+               (println "Received" message)
+               {:status :success})}))
+   
+
+;;;Lock
+(locks/with-lock (cs/update-conn-spec server1-conn) "my-lock"
+  1000 ; Time to hold lock
+  500  ; Time to wait (block) for lock acquisition
+  (println "This was printed under lock!"))  
+```
+
+## Reading From Slaves
+
+If you want to read data from slave, you can set `prefer-slave?` to be true:
+
+```clojure
+(def slave-conn {:pool {<opts>} :spec {} :sentinel-group :group1 :master-name "mymaster" :prefer-slave? true)
+
+(defmacro wcars* [& body] `(cs/wcar slave-conn ~@body))
+```
+
+If you have many slaves for one master, the default balancer is `first` function, but you can custom it by `slaves-balancer`,
+for example, using random strategy:
+
+```clojure
+(def slave-conn {:pool {<opts>} :spec {}
+                 :sentinel-group :group1
+                 :master-name "mymaster"
+                 :prefer-slave? true
+                 :slaves-balancer rand-nth)
+```
+
+## Listen on switching master
+
+You can register a listener to listen on switching master event:
+
+```clojure
+(cs/register-listener! (fn [e] (println "Event " e " happens")))
+```
+
 ## Failover
 
 Carmine-sentinel will connect the first sentinel instance to resolve the master address, if if fails, carmine-sentinel will try the next sentinel until find a resolved master address or throw an exception.The resolved addr will be cached in memory.
 
 And Carmine-sentinel subcribes `+switch-master` channel in sentinel.When the master redis instance is down, sentinel will publish a `+switch-master` message, while carmine-sentinel receives this message, it will clean the last cached result and try to connect the new redis master at once.
+
+## API docs
+
+* [Carmine-sentinel APIs]()
 
 ## License
 
