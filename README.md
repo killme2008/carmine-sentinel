@@ -119,9 +119,11 @@ You can register a listener to listen on switching master event:
 
 ## Failover
 
-Carmine-sentinel will connect the first sentinel instance to resolve the master address, if if fails, carmine-sentinel will try the next sentinel until find a resolved master address or throw an exception.The resolved addr will be cached in memory.
+At startup, carmine-sentinel will connect the first sentinel instance to resolve the master address, if if fails, carmine-sentinel will try the next sentinel until find a resolved master address or throw an exception.The resolved addr will be cached in memory.
 
 And Carmine-sentinel subcribes `+switch-master` channel in sentinel.When the master redis instance is down, sentinel will publish a `+switch-master` message, while carmine-sentinel receives this message, it will clean the last cached result and try to connect the new redis master at once.
+
+At last, carmine-sentinel will refresh the sentinel instance list by the response from command `SENTINEL sentinels [name]`.
 
 ## API docs
 
