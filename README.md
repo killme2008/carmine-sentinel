@@ -26,7 +26,7 @@ Second, configure sentinel groups:
 (set-sentinel-groups! 
   {:group1 
    {:specs [{:host "127.0.0.1" :port 5000} {:host "127.0.0.1" :port 5001} {:host "127.0.0.1" :port 5002}] 
-    :pool  <opts> }})
+    :pool  {<opts>} }})
 ```
 
 There is only one group named `:group1` above, and it has three sentinel instances (port from 5000 to 5002 at 127.0.0.1). Optional, you can set the pool option values and add more sentinel groups.
@@ -38,7 +38,7 @@ Next, we can define the `wcar*`:
 (defmacro wcar* [& body] `(cs/wcar server1-conn ~@body))
 ```
 
-There are two new options in server1-conn:
+The spec in `server1-conn` is empty, and there are two new options in server1-conn:
 
 * `:sentinel-group` Which sentinel instances group to resolve master addr.Here is `:group1`.
 * `:master-name` Master name configured in that sentinel group.Here is `mymaster`.
@@ -89,9 +89,13 @@ You have to invoke `update-conn-spec` before using other APIs in carmine:
 If you want to read data from slave, you can set `prefer-slave?` to be true:
 
 ```clojure
-(def slave-conn {:pool {<opts>} :spec {} :sentinel-group :group1 :master-name "mymaster" :prefer-slave? true)
+(def slave-conn {:pool {<opts>} :spec {} 
+                 :sentinel-group :group1 :master-name "mymaster" 
+                 :prefer-slave? true})
 
 (defmacro wcars* [& body] `(cs/wcar slave-conn ~@body))
+
+(wcars* (car/set "key" 1)) ;; ExceptionInfo READONLY You can't write against a read only slave
 ```
 
 If you have many slaves for one master, the default balancer is `first` function, but you can custom it by `slaves-balancer`,
@@ -121,7 +125,7 @@ And Carmine-sentinel subcribes `+switch-master` channel in sentinel.When the mas
 
 ## API docs
 
-* [Carmine-sentinel APIs]()
+* [Carmine-sentinel APIs](http://fnil.net/docs/carmine_sentinel/)
 
 ## License
 
