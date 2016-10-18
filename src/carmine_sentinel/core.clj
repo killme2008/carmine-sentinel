@@ -133,7 +133,13 @@
                                    :master master
                                    :slaves slaves})
           [master-spec slaves rs-specs]))
-      (catch Exception _
+      (catch Exception e
+        (notify-event-listeners
+         {:event "error"
+          :sentinel-group sg
+          :master-name master-name
+          :sentinel-spec sentinel-spec
+          :exception e})
         ;;Close the listener
         (try
           (when-let [listener (get @sentinel-listeners sentinel-spec)]
