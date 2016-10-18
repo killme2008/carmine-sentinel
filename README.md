@@ -5,7 +5,7 @@ A Clojure library designed to connect redis by [sentinel](redis.io/topics/sentin
 ## Usage
 
 ```clojure
-[net.fnil/carmine-sentinel "0.1.0-RC4"]
+[net.fnil/carmine-sentinel "0.1.0-RC5"]
 ```
 
 **Carmine-sentinel require carmine version must be `2.14.0`right now.**
@@ -30,6 +30,8 @@ Second, configure sentinel groups:
 ```
 
 There is only one group named `:group1` above, and it has three sentinel instances (port from 5000 to 5002 at 127.0.0.1). Optional, you can set the pool option values and add more sentinel groups.
+
+You can use `add-sentinel-groups!` and `remove-sentinel-group!` to manage the configuration all the time.
 
 Next, we can define the `wcar*`:
 
