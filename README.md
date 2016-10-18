@@ -5,7 +5,7 @@ A Clojure library designed to connect redis by [sentinel](redis.io/topics/sentin
 ## Usage
 
 ```clojure
-[net.fnil/carmine-sentinel "0.1.0-RC3"]
+[net.fnil/carmine-sentinel "0.1.0-RC4"]
 ```
 
 **Carmine-sentinel require carmine version must be `2.14.0`right now.**

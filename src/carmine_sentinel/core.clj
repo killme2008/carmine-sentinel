@@ -127,6 +127,11 @@
           (swap! sentinel-resolved-specs assoc-in [sg master-name]
                  {:master master-spec
                   :slaves slaves})
+          (notify-event-listeners {:event "get-master-addr-by-name"
+                                   :sentinel-group sg
+                                   :master-name master-name
+                                   :master master
+                                   :slaves slaves})
           [master-spec slaves rs-specs]))
       (catch Exception _
         ;;Close the listener
@@ -171,6 +176,11 @@
           (swap! sentinel-resolved-specs assoc-in [sg master-name]
                  {:master :error
                   :slaves :error})
+          (notify-event-listeners {:event "get-master-addr-by-name"
+                                   :sentinel-group sg
+                                   :master-name master-name
+                                   :master :error
+                                   :slaves :error})
           (throw (IllegalStateException.
                   (str "Specs not found by master name: " master-name))))))
     (throw (IllegalStateException.
