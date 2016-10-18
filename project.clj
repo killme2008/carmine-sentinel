@@ -1,4 +1,4 @@
-(defproject net.fnil/carmine-sentinel "0.1.0-RC5"
+(defproject net.fnil/carmine-sentinel "0.1.0-RC6"
   :description "A Clojure library designed to connect redis by sentinel, make carmine to support sentinel."
   :url "https://github.com/killme2008/carmine-sentinel"
   :license {:name "Eclipse Public License"

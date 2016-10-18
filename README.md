@@ -5,7 +5,7 @@ A Clojure library designed to connect redis by [sentinel](redis.io/topics/sentin
 ## Usage
 
 ```clojure
-[net.fnil/carmine-sentinel "0.1.0-RC5"]
+[net.fnil/carmine-sentinel "0.1.0-RC6"]
 ```
 
 **Carmine-sentinel require carmine version must be `2.14.0`right now.**
@@ -111,9 +111,10 @@ for example, using random strategy:
                  :slaves-balancer rand-nth)
 ```
 
-## Listen on switching master
+## Listen on carmine-sentinel events
 
-You can register a listener to listen on switching master event:
+You can register a listener to listen carmine-sentinel events such as `error`, `get-master-addr-by-name`
+and `+switch-master` etc. :
 
 ```clojure
 (cs/register-listener! (fn [e] (println "Event " e " happens")))
