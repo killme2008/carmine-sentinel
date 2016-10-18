@@ -239,17 +239,33 @@
                (get-sentinel-redis-spec sg master-name opts)))))
 
 (defn set-sentinel-groups!
-  "Configure sentinel groups:
-   { :default {:specs  [{ :host host
+  "Configure sentinel groups, it will replace current conf:
+   {:group-name {:specs  [{ :host host
                           :port port
                           :password password
                           :timeout-ms timeout-ms },
-                        ......]
-               :pool {<opts>}}}
-  It's a list of sentinel instance process spec:
-  ."
+                         ...other sentinel instances...]
+                 :pool {<opts>}}}
+  The conf is a map of sentinel group to connection spec."
   [conf]
   (reset! sentinel-groups conf))
+
+(defn add-sentinel-groups!
+  "Add sentinel groups,it will be merged into current conf:
+   {:group-name {:specs  [{ :host host
+                          :port port
+                          :password password
+                          :timeout-ms timeout-ms },
+                          ...other sentinel instances...]
+                 :pool {<opts>}}}
+  The conf is a map of sentinel group to connection spec."
+  [conf]
+  (swap! sentinel-groups merge conf))
+
+(defn remove-sentinel-group!
+  "Remove a sentinel group configuration by name."
+  [group-name]
+  (swap! sentinel-groups dissoc group-name))
 
 (defn remove-last-resolved-spec!
   "Remove last resolved master spec by sentinel group and master name."
