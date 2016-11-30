@@ -6,11 +6,11 @@
 ;; {Sentinel group -> master-name -> spec}
 (defonce ^:private sentinel-resolved-specs (atom nil))
 ;; {Sentinel group -> specs}
-(defonce ^:private sentinel-groups (atom nil))
+(defonce ^:private sentinel-groups (volatile! nil))
 ;; Sentinel event listeners
 (defonce ^:private sentinel-listeners (atom nil))
 ;; Carmine-sentinel event listeners
-(defonce ^:private event-listeners (atom []))
+(defonce ^:private event-listeners (volatile! []))
 ;; Locks for resolving spec
 (defonce ^:private locks (atom nil))
 
@@ -166,7 +166,7 @@
           (do
             ;;Move the sentinel instance to the first position of sentinel list
             ;;to speedup next time resolving.
-            (swap! sentinel-groups assoc-in [sg :specs]
+            (vswap! sentinel-groups assoc-in [sg :specs]
                    (vec
                     (concat specs tried-specs
                             ;;adds server returned new sentinel specs to tail.
@@ -203,12 +203,12 @@
            :port new-master-port}}}
   "
   [listener]
-  (swap! event-listeners conj listener))
+  (vswap! event-listeners conj listener))
 
 (defn unregister-listener!
   "Remove the listener for switching master."
   [listener]
-  (swap! event-listeners remove (partial = listener)))
+  (vswap! event-listeners remove (partial = listener)))
 
 (defn get-sentinel-redis-spec
   "Get redis spec by sentinel-group and master name.
@@ -246,7 +246,7 @@
 
 (defn set-sentinel-groups!
   "Configure sentinel groups, it will replace current conf:
-   {:group-name {:specs  [{ :host host
+   {:group-name {:specs [{ :host host
                           :port port
                           :password password
                           :timeout-ms timeout-ms },
@@ -254,7 +254,7 @@
                  :pool {<opts>}}}
   The conf is a map of sentinel group to connection spec."
   [conf]
-  (reset! sentinel-groups conf))
+  (vreset! sentinel-groups conf))
 
 (defn add-sentinel-groups!
   "Add sentinel groups,it will be merged into current conf:
@@ -266,12 +266,12 @@
                  :pool {<opts>}}}
   The conf is a map of sentinel group to connection spec."
   [conf]
-  (swap! sentinel-groups merge conf))
+  (vswap! sentinel-groups merge conf))
 
 (defn remove-sentinel-group!
   "Remove a sentinel group configuration by name."
   [group-name]
-  (swap! sentinel-groups dissoc group-name))
+  (vswap! sentinel-groups dissoc group-name))
 
 (defn remove-last-resolved-spec!
   "Remove last resolved master spec by sentinel group and master name."
