@@ -50,7 +50,7 @@
    :arguments [{:name "name",
                 :type "string"}]})
 
-(defn- make-sure-role
+(defn- make-sure-master-role
   "Make sure the spec is a master role."
   [spec]
   (when-not (=
@@ -123,7 +123,7 @@
                             (map (fn [{:strs [ip port]}]
                                    {:host ip
                                     :port (Integer/valueOf ^String port)})))]
-          (make-sure-role master-spec)
+          (make-sure-master-role master-spec)
           (swap! sentinel-resolved-specs assoc-in [sg master-name]
                  {:master master-spec
                   :slaves slaves})
@@ -152,7 +152,7 @@
   (when (= :error master)
     (throw (IllegalStateException.
             (str "Specs not found by master name: " mn))))
-  (if prefer-slave?
+  (if (and prefer-slave? (seq slaves))
     (slaves-balancer slaves)
     master))
 
