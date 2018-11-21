@@ -1,7 +1,6 @@
 (ns carmine-sentinel.core
   (:require [taoensso.carmine :as car]
-            [taoensso.carmine.commands :as cmds]
-            [taoensso.carmine.locks :as locks])
+            [taoensso.carmine.commands :as cmds])
   (:import (java.io EOFException)))
 
 ;; {Sentinel group -> master-name -> spec}
