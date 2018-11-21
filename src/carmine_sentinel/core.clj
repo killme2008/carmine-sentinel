@@ -157,7 +157,6 @@
           (println "Asdfasdf" master-spec)
           [master-spec slaves rs-specs]))
       (catch Exception e
-        (println "asdfasdf")
         (swap! sentinel-resolved-specs dissoc-in [sg master-name])
         (notify-event-listeners
          {:event "error"
@@ -340,12 +339,9 @@
 (comment
   (set-sentinel-groups!
    {:group1
-    {:specs [{:host "127.0.0.1" :port 26379}
-             ;{:host "127.0.0.1" :port 5001} {:host "127.0.0.1" :port 5002}
-             ]}})
+    {:specs [{:host "127.0.0.1" :port 5000} {:host "127.0.0.1" :port 5001} {:host "127.0.0.1" :port 5002}]}})
   (let [server1-conn {:pool {} :spec {} :sentinel-group :group1 :master-name "mymaster"}]
     (println
      (wcar server1-conn
            (car/set "a" 100)
-           (car/get "a"))))
-  )
+           (car/get "a")))))
