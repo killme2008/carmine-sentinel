@@ -1,7 +1,8 @@
 (ns carmine-sentinel.core
   (:require [taoensso.carmine :as car]
             [taoensso.carmine.commands :as cmds]
-            [taoensso.carmine.locks :as locks]))
+            [taoensso.carmine.locks :as locks])
+  (:import (java.io EOFException)))
 
 ;; {Sentinel group -> master-name -> spec}
 (defonce ^:private sentinel-resolved-specs (atom nil))
@@ -153,8 +154,10 @@
                                    :master-name master-name
                                    :master master
                                    :slaves slaves})
+          (println "Asdfasdf" master-spec)
           [master-spec slaves rs-specs]))
       (catch Exception e
+        (println "asdfasdf")
         (swap! sentinel-resolved-specs dissoc-in [sg master-name])
         (notify-event-listeners
          {:event "error"
@@ -190,6 +193,7 @@
                             ;;adds server returned new sentinel specs to tail.
                             (remove (apply hash-set (:specs conn))
                                     rs-specs))))
+            (println "adsfasdf" ms sls rs-specs)
             (choose-spec master-name ms sls prefer-slave? slaves-balancer))
           ;;Try next sentinel
           (recur (next specs)
@@ -211,6 +215,19 @@
             (str "Missing specs for sentinel group: " sg)))))
 
 ;;APIs
+(defn remove-invalid-resolved-master-specs!
+  "Iterate all the resolved master specs and remove any invalid
+   master spec found by checking role on redis.
+   Please call this periodically to keep safe."
+  []
+  (doseq [[group-id resolved-specs] @sentinel-resolved-specs]
+    (doseq [[master-name master-specs] resolved-specs]
+      (try
+        (when-not (master-role? (:master master-specs))
+          (swap! sentinel-resolved-specs dissoc-in [group-id master-name]))
+        (catch EOFException _
+          (swap! sentinel-resolved-specs dissoc-in [group-id master-name]))))))
+
 (defn register-listener!
   "Register listener for switching master.
   The listener will be called with an event:
@@ -323,9 +340,12 @@
 (comment
   (set-sentinel-groups!
    {:group1
-    {:specs [{:host "127.0.0.1" :port 5000} {:host "127.0.0.1" :port 5001} {:host "127.0.0.1" :port 5002}]}})
+    {:specs [{:host "127.0.0.1" :port 26379}
+             ;{:host "127.0.0.1" :port 5001} {:host "127.0.0.1" :port 5002}
+             ]}})
   (let [server1-conn {:pool {} :spec {} :sentinel-group :group1 :master-name "mymaster"}]
     (println
      (wcar server1-conn
            (car/set "a" 100)
-           (car/get "a")))))
+           (car/get "a"))))
+  )
