@@ -154,7 +154,6 @@
                                    :master-name master-name
                                    :master master
                                    :slaves slaves})
-          (println "Asdfasdf" master-spec)
           [master-spec slaves rs-specs]))
       (catch Exception e
         (swap! sentinel-resolved-specs dissoc-in [sg master-name])
@@ -192,7 +191,6 @@
                             ;;adds server returned new sentinel specs to tail.
                             (remove (apply hash-set (:specs conn))
                                     rs-specs))))
-            (println "adsfasdf" ms sls rs-specs)
             (choose-spec master-name ms sls prefer-slave? slaves-balancer))
           ;;Try next sentinel
           (recur (next specs)
