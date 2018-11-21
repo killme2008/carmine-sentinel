@@ -50,13 +50,15 @@
    :arguments [{:name "name",
                 :type "string"}]})
 
+(defn- master-role? [spec]
+  (= "master"
+     (first (car/wcar {:spec spec}
+                      (car/role)))))
+
 (defn- make-sure-master-role
   "Make sure the spec is a master role."
   [spec]
-  (when-not (=
-             "master"
-             (first (car/wcar {:spec spec}
-                              (car/role))))
+  (when-not (master-role? spec)
     (throw (IllegalStateException.
             (format "Spec %s is not master role." spec)))))
 
@@ -145,12 +147,16 @@
           (swap! sentinel-resolved-specs assoc-in [sg master-name]
                  {:master master-spec
                   :slaves slaves})
-          (notify-event-listeners {:event "get-master-addr-by-name"
-                                   :sentinel-group sg
-                                   :master-name master-name
-                                   :master master
-                                   :slaves slaves})
-          [master-spec slaves rs-specs]))
+          (if (master-role? master-spec)
+            (do
+              (notify-event-listeners {:event "get-master-addr-by-name"
+                                       :sentinel-group sg
+                                       :master-name master-name
+                                       :master master
+                                       :slaves slaves})
+              [master-spec slaves rs-specs])
+            (do (swap! sentinel-resolved-specs dissoc-in [sg master-name])
+              nil))))
       (catch Exception e
         (notify-event-listeners
          {:event "error"
@@ -319,7 +325,7 @@
 (comment
   (set-sentinel-groups!
    {:group1
-    {:specs [{:host "127.0.0.1" :port 5000} {:host "127.0.0.1" :port 5001} {:host "127.0.0.1" :port 5002}]}})
+    {:specs [{:host "127.0.0.1" :port 26379}]}})
   (let [server1-conn {:pool {} :spec {} :sentinel-group :group1 :master-name "mymaster"}]
     (println
      (wcar server1-conn
