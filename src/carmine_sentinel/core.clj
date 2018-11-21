@@ -91,15 +91,33 @@
                                        :port (Integer/valueOf ^String new-port)}})))))
 
 (defn- subscribe-switch-master! [sg spec]
-  (if-let [listener (get @sentinel-listeners spec)]
+  (if-let [[_ listener] (get @sentinel-listeners spec)]
     (deref listener)
     (do
-      (swap! sentinel-listeners assoc spec
-             (delay
-              (car/with-new-pubsub-listener (dissoc spec :timeout-ms)
-                {"+switch-master" (partial handle-switch-master sg)}
-                (car/subscribe "+switch-master"))))
+      (let [stop? (atom false)
+            listener (atom nil)]
+        (future
+          (while (not @stop?)
+            (try
+              (->> (car/with-new-pubsub-listener (dissoc spec :timeout-ms)
+                     {"+switch-master" (partial handle-switch-master sg)}
+                     (car/subscribe "+switch-master"))
+                   (reset! listener)
+                   :future
+                   (deref))
+              (catch Exception _))
+            (Thread/sleep 1000)))
+        (->> (vector stop? listener)
+             (swap! sentinel-listeners assoc spec)))
       (recur sg spec))))
+
+(defn- unsubscribe-switch-master! [sentinel-spec]
+  (try
+    (when-let [[stop? listener] (get @sentinel-listeners sentinel-spec)]
+      (reset! stop? true)
+      (some->> @listener (car/close-listener))
+      (swap! sentinel-listeners dissoc sentinel-spec))
+    (catch Exception _)))
 
 (defn- try-resolve-master-spec [specs sg master-name]
   (let [sentinel-spec (first specs)]
@@ -141,11 +159,7 @@
           :sentinel-spec sentinel-spec
           :exception e})
         ;;Close the listener
-        (try
-          (when-let [listener (get @sentinel-listeners sentinel-spec)]
-            (car/close-listener @listener)
-            (swap! sentinel-listeners dissoc sentinel-spec))
-          (catch Exception _))
+        (unsubscribe-switch-master! sentinel-spec)
         nil))))
 
 (defn- choose-spec [mn master slaves prefer-slave? slaves-balancer]
