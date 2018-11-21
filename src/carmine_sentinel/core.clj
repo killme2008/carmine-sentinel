@@ -147,17 +147,15 @@
           (swap! sentinel-resolved-specs assoc-in [sg master-name]
                  {:master master-spec
                   :slaves slaves})
-          (if (master-role? master-spec)
-            (do
-              (notify-event-listeners {:event "get-master-addr-by-name"
-                                       :sentinel-group sg
-                                       :master-name master-name
-                                       :master master
-                                       :slaves slaves})
-              [master-spec slaves rs-specs])
-            (do (swap! sentinel-resolved-specs dissoc-in [sg master-name])
-              nil))))
+          (make-sure-master-role master-spec)
+          (notify-event-listeners {:event "get-master-addr-by-name"
+                                   :sentinel-group sg
+                                   :master-name master-name
+                                   :master master
+                                   :slaves slaves})
+          [master-spec slaves rs-specs]))
       (catch Exception e
+        (swap! sentinel-resolved-specs dissoc-in [sg master-name])
         (notify-event-listeners
          {:event "error"
           :sentinel-group sg
