@@ -315,6 +315,8 @@
 (defn remove-sentinel-group!
   "Remove a sentinel group configuration by name."
   [group-name]
+  (doseq [sentinel-spec (get-in @sentinel-groups [group-name :specs])]
+    (unsubscribe-switch-master! sentinel-spec))
   (vswap! sentinel-groups dissoc group-name))
 
 (defn remove-last-resolved-spec!
