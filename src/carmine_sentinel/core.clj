@@ -130,25 +130,28 @@
 
 (defn- subscribe-all-sentinels [sentinel-group master-name]
   (when-let [old-sentinel-specs (not-empty (get-in @sentinel-groups [sentinel-group :specs]))]
-    (let [specs (->> old-sentinel-specs
-                     (mapv #(try (car/wcar {:spec %}
-                                           (sentinel-sentinels master-name))
-                                 (catch Exception _
-                                   [])))
-                     (map #(pick-specs-from-sentinel-raw-states %))
-                     (flatten)
-                     ;; merge the old specs in case we get an empty sentinel list
-                     (apply conj old-sentinel-specs)
-                     ;; remove duplicate sentinel spec
-                     (set)
-                     ;; convert sentinel spec list to vector to take advantage of their order later
-                     (vec)
-                     (not-empty))]
-      (doseq [spec specs]
+    (let [valid-specs (->> old-sentinel-specs
+                           (mapv #(try (-> (car/wcar {:spec %}
+                                                     (sentinel-sentinels master-name))
+                                           (pick-specs-from-sentinel-raw-states)
+                                           (conj %))
+                                       (catch Exception _
+                                         [])))
+                           (flatten)
+                           ;; remove duplicate sentinel spec
+                           (set))
+          invalid-specs (remove valid-specs old-sentinel-specs)]
+      (doseq [spec valid-specs]
         (subscribe-switch-master! sentinel-group spec))
 
-      (vswap! sentinel-groups assoc-in [sentinel-group :specs] specs)
-      specs)))
+      (vswap! sentinel-groups assoc-in [sentinel-group :specs]
+              ;; still keep the invalid specs but append them to tail
+              (vec (concat valid-specs invalid-specs)))
+
+      ;; convert sentinel spec list to vector to take advantage of their order later
+      (-> valid-specs
+          (vec)
+          (not-empty)))))
 
 (defn- try-resolve-master-spec [specs sg master-name]
   (let [sentinel-spec (first specs)]
@@ -298,6 +301,9 @@
                  :pool {<opts>}}}
   The conf is a map of sentinel group to connection spec."
   [conf]
+  (doseq [[_ group-conf] @sentinel-groups]
+    (doseq [spec (:specs group-conf)]
+      (unsubscribe-switch-master! spec)))
   (vreset! sentinel-groups conf))
 
 (defn add-sentinel-groups!
