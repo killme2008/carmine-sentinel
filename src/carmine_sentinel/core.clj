@@ -1,7 +1,7 @@
 (ns carmine-sentinel.core
   (:require [taoensso.carmine :as car]
-            [taoensso.carmine.commands :as cmds]
-            [taoensso.carmine.locks :as locks]))
+            [taoensso.carmine.commands :as cmds])
+  (:import (java.io EOFException)))
 
 ;; {Sentinel group -> master-name -> spec}
 (defonce ^:private sentinel-resolved-specs (atom nil))
@@ -50,13 +50,15 @@
    :arguments [{:name "name",
                 :type "string"}]})
 
+(defn- master-role? [spec]
+  (= "master"
+     (first (car/wcar {:spec spec}
+                      (car/role)))))
+
 (defn- make-sure-master-role
   "Make sure the spec is a master role."
   [spec]
-  (when-not (=
-             "master"
-             (first (car/wcar {:spec spec}
-                              (car/role))))
+  (when-not (master-role? spec)
     (throw (IllegalStateException.
             (format "Spec %s is not master role." spec)))))
 
@@ -91,15 +93,33 @@
                                        :port (Integer/valueOf ^String new-port)}})))))
 
 (defn- subscribe-switch-master! [sg spec]
-  (if-let [listener (get @sentinel-listeners spec)]
+  (if-let [[_ listener] (get @sentinel-listeners spec)]
     (deref listener)
     (do
-      (swap! sentinel-listeners assoc spec
-             (delay
-              (car/with-new-pubsub-listener (dissoc spec :timeout-ms)
-                {"+switch-master" (partial handle-switch-master sg)}
-                (car/subscribe "+switch-master"))))
+      (let [stop? (atom false)
+            listener (atom nil)]
+        (future
+          (while (not @stop?)
+            (try
+              (->> (car/with-new-pubsub-listener (dissoc spec :timeout-ms)
+                     {"+switch-master" (partial handle-switch-master sg)}
+                     (car/subscribe "+switch-master"))
+                   (reset! listener)
+                   :future
+                   (deref))
+              (catch Exception _))
+            (Thread/sleep 1000)))
+        (->> (vector stop? listener)
+             (swap! sentinel-listeners assoc spec)))
       (recur sg spec))))
+
+(defn- unsubscribe-switch-master! [sentinel-spec]
+  (try
+    (when-let [[stop? listener] (get @sentinel-listeners sentinel-spec)]
+      (reset! stop? true)
+      (some->> @listener (car/close-listener))
+      (swap! sentinel-listeners dissoc sentinel-spec))
+    (catch Exception _)))
 
 (defn- try-resolve-master-spec [specs sg master-name]
   (let [sentinel-spec (first specs)]
@@ -127,6 +147,7 @@
           (swap! sentinel-resolved-specs assoc-in [sg master-name]
                  {:master master-spec
                   :slaves slaves})
+          (make-sure-master-role master-spec)
           (notify-event-listeners {:event "get-master-addr-by-name"
                                    :sentinel-group sg
                                    :master-name master-name
@@ -134,6 +155,7 @@
                                    :slaves slaves})
           [master-spec slaves rs-specs]))
       (catch Exception e
+        (swap! sentinel-resolved-specs dissoc-in [sg master-name])
         (notify-event-listeners
          {:event "error"
           :sentinel-group sg
@@ -141,11 +163,7 @@
           :sentinel-spec sentinel-spec
           :exception e})
         ;;Close the listener
-        (try
-          (when-let [listener (get @sentinel-listeners sentinel-spec)]
-            (car/close-listener @listener)
-            (swap! sentinel-listeners dissoc sentinel-spec))
-          (catch Exception _))
+        (unsubscribe-switch-master! sentinel-spec)
         nil))))
 
 (defn- choose-spec [mn master slaves prefer-slave? slaves-balancer]
@@ -193,6 +211,19 @@
             (str "Missing specs for sentinel group: " sg)))))
 
 ;;APIs
+(defn remove-invalid-resolved-master-specs!
+  "Iterate all the resolved master specs and remove any invalid
+   master spec found by checking role on redis.
+   Please call this periodically to keep safe."
+  []
+  (doseq [[group-id resolved-specs] @sentinel-resolved-specs]
+    (doseq [[master-name master-specs] resolved-specs]
+      (try
+        (when-not (master-role? (:master master-specs))
+          (swap! sentinel-resolved-specs dissoc-in [group-id master-name]))
+        (catch EOFException _
+          (swap! sentinel-resolved-specs dissoc-in [group-id master-name]))))))
+
 (defn register-listener!
   "Register listener for switching master.
   The listener will be called with an event:
