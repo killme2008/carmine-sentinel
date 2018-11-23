@@ -335,6 +335,38 @@
     (update-conn-spec ~conn)
     ~@sigs))
 
+(defmacro with-new-pubsub-listener
+  "It's the same as taoensso.carmine/with-new-pubsub-listener,
+   but supports
+    :master-name \"mymaster\"
+    :sentinel-group :default
+   in conn for redis sentinel cluster.
+
+   Please note that you can only pass connection spec like
+   hostname and port to taoensso.carmine/with-new-pubsub-listener
+   like:
+
+   (taoensso.carmine/with-new-pubsub-listener
+     {:host \"127.0.0.1\" :port 6379}
+     {... channel and handler stuff ... }
+     ... publish and subscribe stuff ... )
+
+   but for with-new-pubsub-listener in carmine-sentinel, you need
+   to load connection spec with another wrapper along with master-name
+   and sentinel-group to take advantage of sentinel cluster like:
+
+   (carmine-sentinel/with-new-pubsub-listener
+     {:spec {:host \"127.0.0.1\" :port 6379}
+      :master-name \"mymaster\"
+      :sentinel-group :default}
+     {... channel and handler stuff ... }
+     ... publish and subscribe stuff ... )
+  "
+  [conn-spec & others]
+  `(car/with-new-pubsub-listener
+     (dissoc (:spec (update-conn-spec ~conn-spec)) :timeout-ms)
+     ~@others))
+
 (comment
   (set-sentinel-groups!
    {:group1
