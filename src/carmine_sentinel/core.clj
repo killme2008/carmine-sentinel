@@ -283,12 +283,14 @@
    It will resolve master from sentinel first time,then cache the result in
    memory for reusing."
   [conn]
-  (update conn
-          :spec
-          merge
-          (get-sentinel-redis-spec (:sentinel-group conn)
-                                   (:master-name conn)
-                                   conn)))
+  (if (and (:sentinel-group conn) (:master-name conn))
+    (update conn
+            :spec
+            merge
+            (get-sentinel-redis-spec (:sentinel-group conn)
+                                     (:master-name conn)
+                                     conn))
+    conn))
 
 (defmacro wcar
   "It's the same as taoensso.carmine/wcar, but supports
