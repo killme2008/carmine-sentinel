@@ -121,28 +121,48 @@
       (swap! sentinel-listeners dissoc sentinel-spec))
     (catch Exception _)))
 
+(defn- pick-specs-from-sentinel-raw-states [raw-states]
+  (->> raw-states
+       (map (partial apply hash-map))
+       (map (fn [{:strs [ip port]}]
+              {:host ip
+               :port (Integer/valueOf ^String port)}))))
+
+(defn- subscribe-all-sentinels [sentinel-group master-name]
+  (when-let [old-sentinel-specs (not-empty (get-in @sentinel-groups [sentinel-group :specs]))]
+    (let [valid-specs (->> old-sentinel-specs
+                           (mapv #(try (-> (car/wcar {:spec %}
+                                                     (sentinel-sentinels master-name))
+                                           (pick-specs-from-sentinel-raw-states)
+                                           (conj %))
+                                       (catch Exception _
+                                         [])))
+                           (flatten)
+                           ;; remove duplicate sentinel spec
+                           (set))
+          invalid-specs (remove valid-specs old-sentinel-specs)]
+      (doseq [spec valid-specs]
+        (subscribe-switch-master! sentinel-group spec))
+
+      (vswap! sentinel-groups assoc-in [sentinel-group :specs]
+              ;; still keep the invalid specs but append them to tail
+              (vec (concat valid-specs invalid-specs)))
+
+      ;; convert sentinel spec list to vector to take advantage of their order later
+      (-> valid-specs
+          (vec)
+          (not-empty)))))
+
 (defn- try-resolve-master-spec [specs sg master-name]
   (let [sentinel-spec (first specs)]
     (try
-      (when-let [[master slaves sinstances]
+      (when-let [[master slaves]
                  (car/wcar {:spec sentinel-spec} :as-pipeline
                            (sentinel-get-master-addr-by-name master-name)
-                           (sentinel-slaves master-name)
-                           (sentinel-sentinels master-name))]
-        (subscribe-switch-master! sg sentinel-spec)
+                           (sentinel-slaves master-name))]
         (let [master-spec {:host (first master)
                            :port (Integer/valueOf ^String (second master))}
-              slaves (->> slaves
-                          (map (partial apply hash-map))
-                          (map (fn [{:strs [ip port]}]
-                                 {:host ip
-                                  :port (Integer/valueOf ^String port)})))
-              ;;Server returned sentinel specs
-              rs-specs (->> sinstances
-                            (map (partial apply hash-map))
-                            (map (fn [{:strs [ip port]}]
-                                   {:host ip
-                                    :port (Integer/valueOf ^String port)})))]
+              slaves (pick-specs-from-sentinel-raw-states slaves)]
           (make-sure-master-role master-spec)
           (swap! sentinel-resolved-specs assoc-in [sg master-name]
                  {:master master-spec
@@ -153,7 +173,7 @@
                                    :master-name master-name
                                    :master master
                                    :slaves slaves})
-          [master-spec slaves rs-specs]))
+          [master-spec slaves]))
       (catch Exception e
         (swap! sentinel-resolved-specs dissoc-in [sg master-name])
         (notify-event-listeners
@@ -176,20 +196,16 @@
 
 (defn- ask-sentinel-master [sg master-name
                             {:keys [prefer-slave? slaves-balancer]}]
-  (if-let [conn (get @sentinel-groups sg)]
-    (loop [specs (-> conn :specs)
+  (if-let [all-specs (subscribe-all-sentinels sg master-name)]
+    (loop [specs all-specs
            tried-specs []]
       (if (seq specs)
-        (if-let [[ms sls rs-specs] (try-resolve-master-spec specs sg master-name)]
+        (if-let [[ms sls] (try-resolve-master-spec specs sg master-name)]
           (do
             ;;Move the sentinel instance to the first position of sentinel list
             ;;to speedup next time resolving.
             (vswap! sentinel-groups assoc-in [sg :specs]
-                   (vec
-                    (concat specs tried-specs
-                            ;;adds server returned new sentinel specs to tail.
-                            (remove (apply hash-set (:specs conn))
-                                    rs-specs))))
+                   (vec (concat specs tried-specs)))
             (choose-spec master-name ms sls prefer-slave? slaves-balancer))
           ;;Try next sentinel
           (recur (next specs)
@@ -285,6 +301,9 @@
                  :pool {<opts>}}}
   The conf is a map of sentinel group to connection spec."
   [conf]
+  (doseq [[_ group-conf] @sentinel-groups]
+    (doseq [spec (:specs group-conf)]
+      (unsubscribe-switch-master! spec)))
   (vreset! sentinel-groups conf))
 
 (defn add-sentinel-groups!
@@ -302,6 +321,8 @@
 (defn remove-sentinel-group!
   "Remove a sentinel group configuration by name."
   [group-name]
+  (doseq [sentinel-spec (get-in @sentinel-groups [group-name :specs])]
+    (unsubscribe-switch-master! sentinel-spec))
   (vswap! sentinel-groups dissoc group-name))
 
 (defn remove-last-resolved-spec!
