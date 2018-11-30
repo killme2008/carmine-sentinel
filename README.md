@@ -81,8 +81,16 @@ Please use `carmine-sentinel.core/with-new-pubsub-listener` to replace `taoensso
 
 `carmine-sentinel.core/with-new-pubsub-listener` also support bypass sentinel and connect to redis server directly. You just need to provide the redis server spec you want connect to while ignore `sentinel-group` and `master-name`:
 
-```
+```clojure
 (def server1-conn {:spec {:host "127.0.0.1" :port 6379}})
+
+;;Pub/Sub
+(def listener
+  (with-new-pubsub-listener server1-conn
+    {"foobar" (fn f1 [msg] (println "Channel match: " msg))
+     "foo*"   (fn f2 [msg] (println "Pattern match: " msg))}
+   (car/subscribe  "foobar" "foobaz")
+   (car/psubscribe "foo*")))
 ```
 
 ## MessageQueue and Lock
