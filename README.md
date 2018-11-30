@@ -56,6 +56,13 @@ At last, you can use `wcar*` as the same in carmine.
 (wcar* (car/get "key"))
 ```
 
+If you want to by pass sentinel and connect to redis server directly such as doing testing on your local machine, you can ignore `sentinel-group` and `master-name`, just provide redis server connection spec you want connect to directly like this:
+
+```clojure
+(def server1-conn {:pool {<opts>} :spec {:host "127.0.0.1" :port 6379}})
+(defmacro wcar* [& body] `(cs/wcar server1-conn ~@body))
+```
+
 ## Pub/Sub
 
 Please use `carmine-sentinel.core/with-new-pubsub-listener` to replace `taoensso.carmine/with-new-pubsub-listener` and provide master-name, sentinel-group to take advantage of sentinel cluster like this:
@@ -70,6 +77,12 @@ Please use `carmine-sentinel.core/with-new-pubsub-listener` to replace `taoensso
      "foo*"   (fn f2 [msg] (println "Pattern match: " msg))}
    (car/subscribe  "foobar" "foobaz")
    (car/psubscribe "foo*")))
+```
+
+`carmine-sentinel.core/with-new-pubsub-listener` also support bypass sentinel and connect to redis server directly. You just need to provide the redis server spec you want connect to while ignore `sentinel-group` and `master-name`:
+
+```
+(def server1-conn {:spec {:host "127.0.0.1" :port 6379}})
 ```
 
 ## MessageQueue and Lock
