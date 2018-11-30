@@ -56,7 +56,7 @@ At last, you can use `wcar*` as the same in carmine.
 (wcar* (car/get "key"))
 ```
 
-If you want to by pass sentinel and connect to redis server directly such as doing testing on your local machine, you can ignore `sentinel-group` and `master-name`, just provide redis server connection spec you want connect to directly like this:
+If you want to bypass sentinel and connect to redis server directly such as doing testing on your local machine, you can ignore `sentinel-group` and `master-name`, just provide redis server connection spec you want connect to directly like this:
 
 ```clojure
 (def server1-conn {:pool {<opts>} :spec {:host "127.0.0.1" :port 6379}})
