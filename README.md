@@ -56,20 +56,29 @@ At last, you can use `wcar*` as the same in carmine.
 (wcar* (car/get "key"))
 ```
 
-## Pub/Sub, MessageQueue and Lock
+## Pub/Sub
+
+Please use `carmine-sentinel.core/with-new-pubsub-listener` to replace `taoensso.carmine/with-new-pubsub-listener` and provide master-name, sentinel-group to take advantage of sentinel cluster like this:
+
+```clojure
+(def server1-conn {:sentinel-group :group1 :master-name "mymaster"})
+
+;;Pub/Sub
+(def listener
+  (with-new-pubsub-listener server1-conn
+    {"foobar" (fn f1 [msg] (println "Channel match: " msg))
+     "foo*"   (fn f2 [msg] (println "Pattern match: " msg))}
+   (car/subscribe  "foobar" "foobaz")
+   (car/psubscribe "foo*")))
+```
+
+## MessageQueue and Lock
 
 You have to invoke `update-conn-spec` before using other APIs in carmine:
 
 ```clojure
 (def server1-conn {:pool {<opts>} :spec {} :sentinel-group :group1 :master-name "mymaster"})
 
-;;Pub/Sub
-(def listener
-  (car/with-new-pubsub-listener (:spec (cs/update-conn-spec server1-conn))
-    {"foobar" (fn f1 [msg] (println "Channel match: " msg))
-     "foo*"   (fn f2 [msg] (println "Pattern match: " msg))}
-   (car/subscribe  "foobar" "foobaz")
-   (car/psubscribe "foo*")))
 
 ;;Message queue
 (def my-worker
