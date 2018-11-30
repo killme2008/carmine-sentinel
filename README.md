@@ -65,7 +65,7 @@ If you want to bypass sentinel and connect to redis server directly such as doin
 
 ## Pub/Sub
 
-Please use `carmine-sentinel.core/with-new-pubsub-listener` to replace `taoensso.carmine/with-new-pubsub-listener` and provide master-name, sentinel-group to take advantage of sentinel cluster like this:
+Please use `carmine-sentinel.core/with-new-pubsub-listener` to replace `taoensso.carmine/with-new-pubsub-listener` and provide `master-name`, `sentinel-group` to take advantage of sentinel cluster like this:
 
 ```clojure
 (def server1-conn {:sentinel-group :group1 :master-name "mymaster"})
