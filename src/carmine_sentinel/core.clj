@@ -352,7 +352,7 @@
      ... publish and subscribe stuff ... )
 
    but for with-new-pubsub-listener in carmine-sentinel, you need
-   to load connection spec with another wrapper along with master-name
+   to wrap connection spec with another layer along with master-name
    and sentinel-group to take advantage of sentinel cluster like:
 
    (carmine-sentinel/with-new-pubsub-listener
