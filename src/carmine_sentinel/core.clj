@@ -74,7 +74,7 @@
     (dissoc m k)))
 
 (defmacro silently [& body]
-  `(try ~@body (catch Throwable _#)))
+  `(try ~@body (catch Exception _#)))
 
 (defn notify-event-listeners [event]
   (doseq [listener @event-listeners]
