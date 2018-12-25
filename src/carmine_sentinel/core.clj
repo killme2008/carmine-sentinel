@@ -73,11 +73,12 @@
       m)
     (dissoc m k)))
 
+(defmacro silently [& body]
+  `(try ~@body (catch Throwable _#)))
+
 (defn notify-event-listeners [event]
   (doseq [listener @event-listeners]
-    (try
-      (listener event)
-      (catch Exception _))))
+    (silently (listener event))))
 
 (defn- handle-switch-master [sg msg]
   (when (= "message" (first msg))
@@ -92,34 +93,38 @@
                                  :new {:host new-ip
                                        :port (Integer/valueOf ^String new-port)}})))))
 
+(defrecord SentinelListener [internal-pubsub-listener stopped-mark]
+  java.io.Closeable
+  (close [_]
+    (reset! stopped-mark true)
+    (some->> @internal-pubsub-listener (car/close-listener))))
+
 (defn- subscribe-switch-master! [sg spec]
-  (if-let [[_ listener] (get @sentinel-listeners spec)]
-    (deref listener)
+  (if-let [^SentinelListener sentinel-listener (get @sentinel-listeners spec)]
+    (deref (.internal-pubsub-listener sentinel-listener))
     (do
       (let [stop? (atom false)
             listener (atom nil)]
+        (swap! sentinel-listeners assoc spec (SentinelListener. listener stop?))
         (future
           (while (not @stop?)
-            (try
-              (->> (car/with-new-pubsub-listener (dissoc spec :timeout-ms)
-                     {"+switch-master" (partial handle-switch-master sg)}
-                     (car/subscribe "+switch-master"))
-                   (reset! listener)
-                   :future
-                   (deref))
-              (catch Exception _))
-            (Thread/sleep 1000)))
-        (->> (vector stop? listener)
-             (swap! sentinel-listeners assoc spec)))
+            (silently
+              (let [f (->> (car/with-new-pubsub-listener (assoc spec :timeout-ms 10000)
+                             {"+switch-master" (partial handle-switch-master sg)}
+                             (car/subscribe "+switch-master"))
+                           (reset! listener)
+                           :future)]
+                (when (not @stop?)
+                  (deref f))))
+            (silently (Thread/sleep 1000)))))
       (recur sg spec))))
 
 (defn- unsubscribe-switch-master! [sentinel-spec]
-  (try
-    (when-let [[stop? listener] (get @sentinel-listeners sentinel-spec)]
-      (reset! stop? true)
-      (some->> @listener (car/close-listener))
-      (swap! sentinel-listeners dissoc sentinel-spec))
-    (catch Exception _)))
+  (silently
+    (when-let [^SentinelListener sentinel-listener (get @sentinel-listeners sentinel-spec)]
+      (.close sentinel-listener)
+      (swap! sentinel-listeners dissoc sentinel-spec)
+      true)))
 
 (defn- pick-specs-from-sentinel-raw-states [raw-states]
   (->> raw-states
@@ -304,7 +309,8 @@
   (doseq [[_ group-conf] @sentinel-groups]
     (doseq [spec (:specs group-conf)]
       (unsubscribe-switch-master! spec)))
-  (vreset! sentinel-groups conf))
+  (vreset! sentinel-groups conf)
+  (reset! sentinel-resolved-specs nil))
 
 (defn add-sentinel-groups!
   "Add sentinel groups,it will be merged into current conf:
@@ -385,8 +391,34 @@
   "
   [conn-spec & others]
   `(car/with-new-pubsub-listener
-     (dissoc (:spec (update-conn-spec ~conn-spec)) :timeout-ms)
+     (:spec (update-conn-spec ~conn-spec))
      ~@others))
+
+(defn sentinel-group-status
+  "
+   {:group1 {:redis-clusters [{:master-name \"mymaster\",
+                               :master-spec {:host \"127.0.0.1\", :port 6379},
+                               :slave-specs ({:host \"127.0.0.1\", :port 6380})}],
+             :sentinels [{:host \"127.0.0.1\", :port 26380, :with-active-sentinel-listener? true}
+                         {:host \"127.0.0.1\", :port 26381, :with-active-sentinel-listener? true}
+                         {:host \"127.0.0.1\", :port 26379, :with-active-sentinel-listener? true}]}}"
+  []
+  (reduce (fn [cur [group-name sentinel-specs]]
+            (assoc cur
+              group-name
+              {:redis-clusters (->> (get @sentinel-resolved-specs group-name)
+                                    (mapv (fn [[master-name specs]]
+                                            {:master-name master-name
+                                             :master-spec (:master specs)
+                                             :slave-specs (:slaves specs)})))
+               :sentinels      (->> (:specs sentinel-specs)
+                                    (map #(let [^SentinelListener listener (get @sentinel-listeners %)]
+                                            (assoc %
+                                              :with-active-sentinel-listener?
+                                              (and listener
+                                                   (not @(.stopped-mark listener)))))))}))
+          {}
+          @sentinel-groups))
 
 (comment
   (set-sentinel-groups!
