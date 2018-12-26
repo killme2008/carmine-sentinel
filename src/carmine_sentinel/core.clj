@@ -150,18 +150,17 @@
                            (flatten)
                            ;; remove duplicate sentinel spec
                            (set))
-          invalid-specs (remove valid-specs old-sentinel-specs)]
+          invalid-specs (remove valid-specs old-sentinel-specs)
+          ;; still keeping the invalid specs but append them to tail then
+          ;; convert spec list to vector to take advantage of their order later
+          all-specs (vec (concat valid-specs invalid-specs))]
+
       (doseq [spec valid-specs]
         (subscribe-switch-master! sentinel-group spec))
 
-      (vswap! sentinel-groups assoc-in [sentinel-group :specs]
-              ;; still keep the invalid specs but append them to tail
-              (vec (concat valid-specs invalid-specs)))
+      (vswap! sentinel-groups assoc-in [sentinel-group :specs] all-specs)
 
-      ;; convert sentinel spec list to vector to take advantage of their order later
-      (-> valid-specs
-          (vec)
-          (not-empty)))))
+      (not-empty all-specs))))
 
 (defn- try-resolve-master-spec [specs sg master-name]
   (let [sentinel-spec (first specs)]
@@ -215,7 +214,7 @@
             ;;Move the sentinel instance to the first position of sentinel list
             ;;to speedup next time resolving.
             (vswap! sentinel-groups assoc-in [sg :specs]
-                   (vec (concat specs tried-specs)))
+                    (vec (concat specs tried-specs)))
             (choose-spec master-name ms sls prefer-slave? slaves-balancer))
           ;;Try next sentinel
           (recur (next specs)
@@ -334,7 +333,8 @@
   [group-name]
   (doseq [sentinel-spec (get-in @sentinel-groups [group-name :specs])]
     (unsubscribe-switch-master! sentinel-spec))
-  (vswap! sentinel-groups dissoc group-name))
+  (vswap! sentinel-groups dissoc group-name)
+  (swap! sentinel-resolved-specs dissoc group-name))
 
 (defn remove-last-resolved-spec!
   "Remove last resolved master spec by sentinel group and master name."
@@ -400,13 +400,29 @@
      ~@others))
 
 (defn sentinel-group-status
-  "
+  "Get the status of all the registered sentinel groups and resolved redis cluster specs.
+
+   For example, firstly we set sentinel groups:
+
+   (set-sentinel-groups!
+     {:group1 {:specs [{:host \"127.0.0.1\" :port 5000}
+                       {:host \"127.0.0.1\" :port 5001}
+                       {:host \"127.0.0.1\" :port 5002}]}})
+
+   Then do something to trigger the resolving of the redis cluster specs.
+
+   (let [server1-conn {:pool {} :spec {} :sentinel-group :group1 :master-name \"mymaster\"}]
+     (wcar server1-conn
+       (car/set \"a\" 100)))
+
+   At last we execute (sentinel-group-status), then got things like:
+
    {:group1 {:redis-clusters [{:master-name \"mymaster\",
                                :master-spec {:host \"127.0.0.1\", :port 6379},
                                :slave-specs ({:host \"127.0.0.1\", :port 6380})}],
-             :sentinels [{:host \"127.0.0.1\", :port 26380, :with-active-sentinel-listener? true}
-                         {:host \"127.0.0.1\", :port 26381, :with-active-sentinel-listener? true}
-                         {:host \"127.0.0.1\", :port 26379, :with-active-sentinel-listener? true}]}}"
+             :sentinels [{:host \"127.0.0.1\", :port 5000, :with-active-sentinel-listener? true}
+                         {:host \"127.0.0.1\", :port 5001, :with-active-sentinel-listener? true}
+                         {:host \"127.0.0.1\", :port 5002, :with-active-sentinel-listener? true}]}}"
   []
   (reduce (fn [cur [group-name sentinel-specs]]
             (assoc cur
@@ -420,7 +436,7 @@
                                     (map #(let [^SentinelListener listener (get @sentinel-listeners %)]
                                             (assoc %
                                               :with-active-sentinel-listener?
-                                              (and listener
+                                              (and (some? listener)
                                                    (not @(.stopped-mark listener)))))))}))
           {}
           @sentinel-groups))
