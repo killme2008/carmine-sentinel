@@ -113,7 +113,7 @@
               ;; support ping/pong test for a connection waiting for an event publishing
               ;; from redis, we do need this to maintain liveness in case redis server
               ;; crash unintentionally. Ref. https://github.com/antirez/redis/issues/420
-              (let [spec-with-timeout (update {:a 1 :B 2} :timeout-ms #(or % 10000))
+              (let [spec-with-timeout (update spec :timeout-ms #(or % 10000))
                     f (->> (car/with-new-pubsub-listener spec-with-timeout
                              {"+switch-master" (partial handle-switch-master sg)}
                              (car/subscribe "+switch-master"))
