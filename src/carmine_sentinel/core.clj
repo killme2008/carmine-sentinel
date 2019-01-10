@@ -73,11 +73,12 @@
       m)
     (dissoc m k)))
 
+(defmacro silently [& body]
+  `(try ~@body (catch Exception _#)))
+
 (defn notify-event-listeners [event]
   (doseq [listener @event-listeners]
-    (try
-      (listener event)
-      (catch Exception _))))
+    (silently (listener event))))
 
 (defn- handle-switch-master [sg msg]
   (when (= "message" (first msg))
@@ -92,34 +93,43 @@
                                  :new {:host new-ip
                                        :port (Integer/valueOf ^String new-port)}})))))
 
+(defrecord SentinelListener [internal-pubsub-listener stopped-mark]
+  java.io.Closeable
+  (close [_]
+    (reset! stopped-mark true)
+    (some->> @internal-pubsub-listener (car/close-listener))))
+
 (defn- subscribe-switch-master! [sg spec]
-  (if-let [[_ listener] (get @sentinel-listeners spec)]
-    (deref listener)
+  (if-let [^SentinelListener sentinel-listener (get @sentinel-listeners spec)]
+    (deref (.internal-pubsub-listener sentinel-listener))
     (do
       (let [stop? (atom false)
             listener (atom nil)]
+        (swap! sentinel-listeners assoc spec (SentinelListener. listener stop?))
         (future
           (while (not @stop?)
-            (try
-              (->> (car/with-new-pubsub-listener (dissoc spec :timeout-ms)
-                     {"+switch-master" (partial handle-switch-master sg)}
-                     (car/subscribe "+switch-master"))
-                   (reset! listener)
-                   :future
-                   (deref))
-              (catch Exception _))
-            (Thread/sleep 1000)))
-        (->> (vector stop? listener)
-             (swap! sentinel-listeners assoc spec)))
+            (silently
+              ;; It's unusual to use timeout in redis pub/sub but due to Carmine does not
+              ;; support ping/pong test for a connection waiting for an event publishing
+              ;; from redis, we do need this to maintain liveness in case redis server
+              ;; crash unintentionally. Ref. https://github.com/antirez/redis/issues/420
+              (let [spec-with-timeout (update spec :timeout-ms #(or % 10000))
+                    f (->> (car/with-new-pubsub-listener spec-with-timeout
+                             {"+switch-master" (partial handle-switch-master sg)}
+                             (car/subscribe "+switch-master"))
+                           (reset! listener)
+                           :future)]
+                (when (not @stop?)
+                  (deref f))))
+            (silently (Thread/sleep 1000)))))
       (recur sg spec))))
 
 (defn- unsubscribe-switch-master! [sentinel-spec]
-  (try
-    (when-let [[stop? listener] (get @sentinel-listeners sentinel-spec)]
-      (reset! stop? true)
-      (some->> @listener (car/close-listener))
-      (swap! sentinel-listeners dissoc sentinel-spec))
-    (catch Exception _)))
+  (silently
+    (when-let [^SentinelListener sentinel-listener (get @sentinel-listeners sentinel-spec)]
+      (.close sentinel-listener)
+      (swap! sentinel-listeners dissoc sentinel-spec)
+      true)))
 
 (defn- pick-specs-from-sentinel-raw-states [raw-states]
   (->> raw-states
@@ -140,18 +150,17 @@
                            (flatten)
                            ;; remove duplicate sentinel spec
                            (set))
-          invalid-specs (remove valid-specs old-sentinel-specs)]
+          invalid-specs (remove valid-specs old-sentinel-specs)
+          ;; still keeping the invalid specs but append them to tail then
+          ;; convert spec list to vector to take advantage of their order later
+          all-specs (vec (concat valid-specs invalid-specs))]
+
       (doseq [spec valid-specs]
         (subscribe-switch-master! sentinel-group spec))
 
-      (vswap! sentinel-groups assoc-in [sentinel-group :specs]
-              ;; still keep the invalid specs but append them to tail
-              (vec (concat valid-specs invalid-specs)))
+      (vswap! sentinel-groups assoc-in [sentinel-group :specs] all-specs)
 
-      ;; convert sentinel spec list to vector to take advantage of their order later
-      (-> valid-specs
-          (vec)
-          (not-empty)))))
+      (not-empty all-specs))))
 
 (defn- try-resolve-master-spec [specs sg master-name]
   (let [sentinel-spec (first specs)]
@@ -205,7 +214,7 @@
             ;;Move the sentinel instance to the first position of sentinel list
             ;;to speedup next time resolving.
             (vswap! sentinel-groups assoc-in [sg :specs]
-                   (vec (concat specs tried-specs)))
+                    (vec (concat specs tried-specs)))
             (choose-spec master-name ms sls prefer-slave? slaves-balancer))
           ;;Try next sentinel
           (recur (next specs)
@@ -304,7 +313,8 @@
   (doseq [[_ group-conf] @sentinel-groups]
     (doseq [spec (:specs group-conf)]
       (unsubscribe-switch-master! spec)))
-  (vreset! sentinel-groups conf))
+  (vreset! sentinel-groups conf)
+  (reset! sentinel-resolved-specs nil))
 
 (defn add-sentinel-groups!
   "Add sentinel groups,it will be merged into current conf:
@@ -323,7 +333,8 @@
   [group-name]
   (doseq [sentinel-spec (get-in @sentinel-groups [group-name :specs])]
     (unsubscribe-switch-master! sentinel-spec))
-  (vswap! sentinel-groups dissoc group-name))
+  (vswap! sentinel-groups dissoc group-name)
+  (swap! sentinel-resolved-specs dissoc group-name))
 
 (defn remove-last-resolved-spec!
   "Remove last resolved master spec by sentinel group and master name."
@@ -385,8 +396,50 @@
   "
   [conn-spec & others]
   `(car/with-new-pubsub-listener
-     (dissoc (:spec (update-conn-spec ~conn-spec)) :timeout-ms)
+     (:spec (update-conn-spec ~conn-spec))
      ~@others))
+
+(defn sentinel-group-status
+  "Get the status of all the registered sentinel groups and resolved redis cluster specs.
+
+   For example, firstly we set sentinel groups:
+
+   (set-sentinel-groups!
+     {:group1 {:specs [{:host \"127.0.0.1\" :port 5000}
+                       {:host \"127.0.0.1\" :port 5001}
+                       {:host \"127.0.0.1\" :port 5002}]}})
+
+   Then do something to trigger the resolving of the redis cluster specs.
+
+   (let [server1-conn {:pool {} :spec {} :sentinel-group :group1 :master-name \"mymaster\"}]
+     (wcar server1-conn
+       (car/set \"a\" 100)))
+
+   At last we execute (sentinel-group-status), then got things like:
+
+   {:group1 {:redis-clusters [{:master-name \"mymaster\",
+                               :master-spec {:host \"127.0.0.1\", :port 6379},
+                               :slave-specs ({:host \"127.0.0.1\", :port 6380})}],
+             :sentinels [{:host \"127.0.0.1\", :port 5000, :with-active-sentinel-listener? true}
+                         {:host \"127.0.0.1\", :port 5001, :with-active-sentinel-listener? true}
+                         {:host \"127.0.0.1\", :port 5002, :with-active-sentinel-listener? true}]}}"
+  []
+  (reduce (fn [cur [group-name sentinel-specs]]
+            (assoc cur
+              group-name
+              {:redis-clusters (->> (get @sentinel-resolved-specs group-name)
+                                    (mapv (fn [[master-name specs]]
+                                            {:master-name master-name
+                                             :master-spec (:master specs)
+                                             :slave-specs (:slaves specs)})))
+               :sentinels      (->> (:specs sentinel-specs)
+                                    (map #(let [^SentinelListener listener (get @sentinel-listeners %)]
+                                            (assoc %
+                                              :with-active-sentinel-listener?
+                                              (and (some? listener)
+                                                   (not @(.stopped-mark listener)))))))}))
+          {}
+          @sentinel-groups))
 
 (comment
   (set-sentinel-groups!
