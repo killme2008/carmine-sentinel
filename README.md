@@ -5,10 +5,10 @@ A Clojure library designed to connect redis by [sentinel](redis.io/topics/sentin
 ## Usage
 
 ```clojure
-[net.fnil/carmine-sentinel "0.2.1"]
+[net.fnil/carmine-sentinel "0.3.0"]
 ```
 
-**Carmine-sentinel require carmine version must be `2.14.0`right now.**
+**Carmine-sentinel require carmine version must be `>= 2.15.0`right now.**
 
 First, require carmine and carmine-sentinel:
 
@@ -40,12 +40,13 @@ Next, we can define the `wcar*`:
 (defmacro wcar* [& body] `(cs/wcar server1-conn ~@body))
 ```
 
-The spec in `server1-conn` is empty, and there are two new options in server1-conn:
+The spec in `server1-conn` can be left empty or contain general configurations, such as password or ssl function, and there are two new options in server1-conn:
 
 * `:sentinel-group` Which sentinel instances group to resolve master addr.Here is `:group1`.
 * `:master-name` Master name configured in that sentinel group.Here is `mymaster`.
 
-The `spec` in server1-conn will be merged to resolved master spec at runtime.So you can set `:password`,`:timeout-ms` etc. other options in it.
+The `spec` in server1-conn will be merged to resolved master spec at runtime.
+So you can set `:password`,`:timeout-ms` etc. other options in it.
 
 Also, you can define many `wcar*`-like macros to use other sentinel group and master name.
 

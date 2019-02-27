@@ -1,24 +1,14 @@
 # Change Log
-All notable changes to this project will be documented in this file. This change log follows the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
-## [Unreleased][unreleased]
-### Changed
-- Add a new arity to `make-widget-async` to provide a different widget shape.
-
-## [0.1.1] - 2016-10-13
-### Changed
-- Documentation on how to make the widgets.
-
-### Removed
-- `make-widget-sync` - we're all async, all the time.
+## [0.3.0] - 2019-02-27
+### Compatibility Breaking Change
+- Change defined sentinel commands format to be compatible with `carmine` version post `2.14`: will only work for `2.15`+ !
 
 ### Fixed
-- Fixed widget maker to keep working when daylight savings switches over.
+- carmine server connection settings are no longer lost: password connection works!
 
-## 0.1.0 - 2016-10-13
-### Added
-- Files from the new template.
-- Widget maker public API - `make-widget-sync`.
-
-[unreleased]: https://github.com/your-name/carmine-sentinel/compare/0.1.1...HEAD
-[0.1.1]: https://github.com/your-name/carmine-sentinel/compare/0.1.0...0.1.1
+### Changed
+- Expanded hard to read use of macros
+- Change variable names from acronyms to full words from acronyms
+- `try-resolve-master-spec` now accepts `server-conn` argument
+- `get-sentinel-redis-spec` now checks arguments using `:pre` not `if ... throw`
