@@ -43,6 +43,7 @@
 (deftest resolve-master-spec
   (testing "Try to resolve the master's spec using the sentinels' specs"
     (is (=
+         [{:password "foobar", :host "127.0.0.1", :port 6379} ()]
          (let [server-conn     {:pool {},
                                 :spec {:password "foobar"},
                                 :sentinel-group :group1,
@@ -53,32 +54,30 @@
                sentinel-group :group1
                master-name    "mymaster"]
            (@#'carmine-sentinel.core/try-resolve-master-spec
-            server-conn specs sentinel-group master-name))
-         [{:password "foobar", :host "127.0.0.1", :port 6379} ()])
-        )))
+            server-conn specs sentinel-group master-name))))))
 
 (deftest subscribing-all-sentinels
-  (testing ""
+  (testing "Check if sentinels are subscribed to correctly"
     (is (=
+         [{:password "foobar", :port 5002, :host "127.0.0.1"}
+          {:password "foobar", :port 5001, :host "127.0.0.1"}
+          {:password "foobar", :port 5000, :host "127.0.0.1"}]
          (let [sentinel-group :group1
                master-name "mymaster"
                server-conn conn]
            (@#'carmine-sentinel.core/subscribe-all-sentinels
             sentinel-group
-            master-name))
-         [{:password "foobar", :port 5002, :host "127.0.0.1"}
-          {:password "foobar", :port 5001, :host "127.0.0.1"}
-          {:password "foobar", :port 5000, :host "127.0.0.1"}]))))
+            master-name))))))
 
 (deftest asking-sentinel-master
-  (testing ""
-    (is (= (let [sentinel-group :group1
+  (testing "Testing if master is found through sentinel"
+    (is (= {:password "foobar", :host "127.0.0.1", :port 6379}
+           (let [sentinel-group :group1
                  master-name "mymaster"
                  server-conn conn]
              (@#'carmine-sentinel.core/ask-sentinel-master sentinel-group
               master-name
-              server-conn))
-           {:password "foobar", :host "127.0.0.1", :port 6379}))))
+              server-conn))))))
 
 (deftest sentinel-redis-spec
   (testing "Trying to get redis spec by sentinel-group and master name"
