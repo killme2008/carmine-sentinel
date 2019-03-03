@@ -462,31 +462,49 @@
     (vreset! event-listeners [])
     (reset! locks nil)
 
-    (set-sentinel-groups!
-     {:group1
-      {:specs [{:host host1-1 :port 26379 :password token}
-               {:host host1-2 :port 26379 :password token}
-               {:host host1-3 :port 26379 :password token}]
-       :pool {}}}))
+    (let [token "foobar"
+          host "127.0.0.1"]
 
-  (def server1-conn
-    {:pool {}
-     :spec {:password token}
-     :sentinel-group :group1
-     :master-name "redis098"})
+      (def server1-conn
+        {:pool {}
+         :spec {:password token}
+         :sentinel-group :group1
+         :master-name "mymaster"})
+
+      (set-sentinel-groups!
+       {:group1
+        {:specs [{:host host :port 5000}
+                 {:host host :port 5001}
+                 {:host host :port 5002}]}})))
+
+  (do ;; reset environment
+    (reset! sentinel-resolved-specs nil)
+    (vreset! sentinel-groups nil)
+    (reset! sentinel-listeners nil)
+    (vreset! event-listeners [])
+    (reset! locks nil)
+
+    (let [token "foobar"
+          host "127.0.0.1"]
+
+      (def server1-conn
+        {:pool {}
+         :spec {:password token}
+         :sentinel-group :group1
+         :master-name "mymaster"})
+
+      (set-sentinel-groups!
+       {:group1
+        {:specs [{:host host :port 5000 :password token}
+                 {:host host :port 5001 :password token}
+                 {:host host :port 5002 :password token}]}})))
 
   (defmacro wcar* [& body] `(wcar server1-conn ~@body))
 
-  (update-conn-spec server1-conn)
-
-  (time (update-conn-spec server1-conn))
+  (wcar* (car/ping))
 
   (wcar* (car/set "key" 1))
 
   (wcar* (car/get "key"))
-
-  (time (wcar* (car/set "key" 1)))
-
-  (time (wcar* (car/get "key")))
 
   )
