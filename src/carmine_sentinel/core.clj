@@ -473,28 +473,6 @@
 
       (set-sentinel-groups!
        {:group1
-        {:specs [{:host host :port 5000}
-                 {:host host :port 5001}
-                 {:host host :port 5002}]}})))
-
-  (do ;; reset environment
-    (reset! sentinel-resolved-specs nil)
-    (vreset! sentinel-groups nil)
-    (reset! sentinel-listeners nil)
-    (vreset! event-listeners [])
-    (reset! locks nil)
-
-    (let [token "foobar"
-          host "127.0.0.1"]
-
-      (def server1-conn
-        {:pool {}
-         :spec {:password token}
-         :sentinel-group :group1
-         :master-name "mymaster"})
-
-      (set-sentinel-groups!
-       {:group1
         {:specs [{:host host :port 5000 :password token}
                  {:host host :port 5001 :password token}
                  {:host host :port 5002 :password token}]}})))
