@@ -64,6 +64,30 @@ If you want to bypass sentinel and connect to redis server directly such as doin
 (defmacro wcar* [& body] `(cs/wcar server1-conn ~@body))
 ```
 
+### Authentication
+
+Due to a bug fix in version `1.0.0` authentication requires slight modifications to the settings.
+Notice both the server connection and sentinel group require passing the authentication token:
+
+```clojure
+(let [token "foobar"
+          host "127.0.0.1"]
+
+      (def server1-conn
+        {:pool {}
+         :spec {:password token}
+         :sentinel-group :group1
+         :master-name "mymaster"})
+
+      (set-sentinel-groups!
+       {:group1
+        {:specs [{:host host :port 5000 :password token}
+                 {:host host :port 5001 :password token}
+                 {:host host :port 5002 :password token}]}}))
+```
+
+`wcar*` is defined normally
+
 ## Pub/Sub
 
 Please use `carmine-sentinel.core/with-new-pubsub-listener` to replace `taoensso.carmine/with-new-pubsub-listener` and provide `master-name`, `sentinel-group` to take advantage of sentinel cluster like this:
@@ -162,6 +186,15 @@ At last, carmine-sentinel will refresh the sentinel instance list by the respons
 ## API docs
 
 * [Carmine-sentinel APIs](http://fnil.net/docs/carmine_sentinel/)
+
+## Testing
+
+Running the Makefile tests requires having `make`, `lein` and a Linux or MacOS machine.
+The test scenario in the is comprised of three sentinels and one master.
+
+To run the tests simply run in shell:
+```shell
+make test```
 
 ## License
 
