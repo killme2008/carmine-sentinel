@@ -194,7 +194,8 @@ The test scenario in the is comprised of three sentinels and one master.
 
 To run the tests simply run in shell:
 ```shell
-make test```
+make test
+```
 
 ## License
 
