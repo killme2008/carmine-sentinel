@@ -144,18 +144,18 @@
 (defn- subscribe-all-sentinels [sentinel-group master-name]
   (when-let [old-sentinel-specs (not-empty (get-in @sentinel-groups [sentinel-group :specs]))]
     (let [valid-specs
-          (set ;; remove duplicate sentinel spec
-           (flatten
-            (mapv
-             (fn [spec]
-               (try
-                 (conj
-                  (map (fn [new-raw-spec] (merge spec new-raw-spec))
-                       (pick-specs-from-sentinel-raw-states
-                        (car/wcar {:spec spec} (sentinel-sentinels master-name))))
-                  spec)
-                 (catch Exception _ [])))
-             old-sentinel-specs)))
+          (->> old-sentinel-specs
+               (mapv
+                (fn [spec]
+                  (try
+                    (->> (car/wcar {:spec spec} (sentinel-sentinels master-name))
+                        (pick-specs-from-sentinel-raw-states)
+                        (map (fn [new-raw-spec] (merge spec new-raw-spec)))
+                        (#(conj % spec)))
+                    (catch Exception _ []))))
+               (flatten)
+               ;; remove duplicate sentinel spec
+               (set))
           invalid-specs (remove valid-specs old-sentinel-specs)
           ;; still keeping the invalid specs but append them to tail then
           ;; convert spec list to vector to take advantage of their order later
