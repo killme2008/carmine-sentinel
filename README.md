@@ -5,10 +5,10 @@ A Clojure library designed to connect redis by [sentinel](redis.io/topics/sentin
 ## Usage
 
 ```clojure
-[net.fnil/carmine-sentinel "0.2.1"]
+[net.fnil/carmine-sentinel "1.0.0"]
 ```
 
-**Carmine-sentinel require carmine version must be `2.14.0`right now.**
+**Carmine-sentinel require carmine version must be `>= 2.15.0`right now.**
 
 First, require carmine and carmine-sentinel:
 
@@ -40,12 +40,13 @@ Next, we can define the `wcar*`:
 (defmacro wcar* [& body] `(cs/wcar server1-conn ~@body))
 ```
 
-The spec in `server1-conn` is empty, and there are two new options in server1-conn:
+The spec in `server1-conn` can be left empty or contain general configurations, such as password or ssl function, and there are two new options in server1-conn:
 
 * `:sentinel-group` Which sentinel instances group to resolve master addr.Here is `:group1`.
 * `:master-name` Master name configured in that sentinel group.Here is `mymaster`.
 
-The `spec` in server1-conn will be merged to resolved master spec at runtime.So you can set `:password`,`:timeout-ms` etc. other options in it.
+The `spec` in server1-conn will be merged to resolved master spec at runtime.
+So you can set `:password`,`:timeout-ms` etc. other options in it.
 
 Also, you can define many `wcar*`-like macros to use other sentinel group and master name.
 
@@ -62,6 +63,30 @@ If you want to bypass sentinel and connect to redis server directly such as doin
 (def server1-conn {:pool {<opts>} :spec {:host "127.0.0.1" :port 6379}})
 (defmacro wcar* [& body] `(cs/wcar server1-conn ~@body))
 ```
+
+### Authentication
+
+Due to a bug fix in version `1.0.0` authentication requires slight modifications to the settings.
+Notice both the server connection and sentinel group require passing the authentication token:
+
+```clojure
+(let [token "foobar"
+          host "127.0.0.1"]
+
+      (def server1-conn
+        {:pool {}
+         :spec {:password token}
+         :sentinel-group :group1
+         :master-name "mymaster"})
+
+      (set-sentinel-groups!
+       {:group1
+        {:specs [{:host host :port 5000 :password token}
+                 {:host host :port 5001 :password token}
+                 {:host host :port 5002 :password token}]}}))
+```
+
+`wcar*` is defined normally
 
 ## Pub/Sub
 
@@ -161,6 +186,16 @@ At last, carmine-sentinel will refresh the sentinel instance list by the respons
 ## API docs
 
 * [Carmine-sentinel APIs](http://fnil.net/docs/carmine_sentinel/)
+
+## Testing
+
+Running the Makefile tests requires having `make`, `lein` and a Linux or MacOS machine.
+The test scenario in the is comprised of three sentinels and one master.
+
+To run the tests simply run in shell:
+```shell
+make test
+```
 
 ## License
 

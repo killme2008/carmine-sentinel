@@ -29,26 +29,28 @@
 
 ;;define commands for sentinel
 (cmds/defcommand "SENTINEL get-master-addr-by-name"
-  {
-   :summary "get master address by master name.",
-   :complexity "O(1)",
-   :arguments [{:name "name",
-                :type "string"}]})
+  {:fn-name         "sentinel-get-master-addr-by-name"
+   :fn-params-fixed [name]
+   :fn-params-more  nil
+   :req-args-fixed  ["SENTINEL" "get-master-addr-by-name" name]
+   :cluster-key-idx 2
+   :fn-docstring    "get master address by master name. complexity O(1)"})
 
 (cmds/defcommand "SENTINEL slaves"
-  {
-   :summary "get slaves address by master name.",
-   :complexity "O(1)",
-   :arguments [{:name "name",
-                :type "string"}]})
-
+  {:fn-name         "sentinel-slaves"
+   :fn-params-fixed [name]
+   :fn-params-more  nil
+   :req-args-fixed  ["SENTINEL" "slaves" name]
+   :cluster-key-idx 2
+   :fn-docstring    "get slaves address by master name. complexity O(1)"})
 
 (cmds/defcommand "SENTINEL sentinels"
-  {
-   :summary "get sentinel instances by mater name.",
-   :complexity "O(1)",
-   :arguments [{:name "name",
-                :type "string"}]})
+  {:fn-name         "sentinel-sentinels"
+   :fn-params-fixed [name]
+   :fn-params-more  nil
+   :req-args-fixed  ["SENTINEL" "sentinels" name]
+   :cluster-key-idx 2
+   :fn-docstring    "get sentinel instances by mater name. complexity O(1)"})
 
 (defn- master-role? [spec]
   (= "master"
@@ -131,7 +133,8 @@
       (swap! sentinel-listeners dissoc sentinel-spec)
       true)))
 
-(defn- pick-specs-from-sentinel-raw-states [raw-states]
+(defn- pick-specs-from-sentinel-raw-states
+  [raw-states]
   (->> raw-states
        (map (partial apply hash-map))
        (map (fn [{:strs [ip port]}]
@@ -140,16 +143,19 @@
 
 (defn- subscribe-all-sentinels [sentinel-group master-name]
   (when-let [old-sentinel-specs (not-empty (get-in @sentinel-groups [sentinel-group :specs]))]
-    (let [valid-specs (->> old-sentinel-specs
-                           (mapv #(try (-> (car/wcar {:spec %}
-                                                     (sentinel-sentinels master-name))
-                                           (pick-specs-from-sentinel-raw-states)
-                                           (conj %))
-                                       (catch Exception _
-                                         [])))
-                           (flatten)
-                           ;; remove duplicate sentinel spec
-                           (set))
+    (let [valid-specs
+          (->> old-sentinel-specs
+               (mapv
+                (fn [spec]
+                  (try
+                    (->> (car/wcar {:spec spec} (sentinel-sentinels master-name))
+                        (pick-specs-from-sentinel-raw-states)
+                        (map (fn [new-raw-spec] (merge spec new-raw-spec)))
+                        (#(conj % spec)))
+                    (catch Exception _ []))))
+               (flatten)
+               ;; remove duplicate sentinel spec
+               (set))
           invalid-specs (remove valid-specs old-sentinel-specs)
           ;; still keeping the invalid specs but append them to tail then
           ;; convert spec list to vector to take advantage of their order later
@@ -162,32 +168,33 @@
 
       (not-empty all-specs))))
 
-(defn- try-resolve-master-spec [specs sg master-name]
+(defn- try-resolve-master-spec [server-conn specs sentinel-group master-name]
   (let [sentinel-spec (first specs)]
     (try
       (when-let [[master slaves]
                  (car/wcar {:spec sentinel-spec} :as-pipeline
                            (sentinel-get-master-addr-by-name master-name)
                            (sentinel-slaves master-name))]
-        (let [master-spec {:host (first master)
-                           :port (Integer/valueOf ^String (second master))}
+        (let [master-spec (merge (:spec server-conn)
+                                 {:host (first master)
+                                  :port (Integer/valueOf ^String (second master))})
               slaves (pick-specs-from-sentinel-raw-states slaves)]
           (make-sure-master-role master-spec)
-          (swap! sentinel-resolved-specs assoc-in [sg master-name]
+          (swap! sentinel-resolved-specs assoc-in [sentinel-group master-name]
                  {:master master-spec
                   :slaves slaves})
           (make-sure-master-role master-spec)
           (notify-event-listeners {:event "get-master-addr-by-name"
-                                   :sentinel-group sg
+                                   :sentinel-group sentinel-group
                                    :master-name master-name
                                    :master master
                                    :slaves slaves})
           [master-spec slaves]))
       (catch Exception e
-        (swap! sentinel-resolved-specs dissoc-in [sg master-name])
+        (swap! sentinel-resolved-specs dissoc-in [sentinel-group master-name])
         (notify-event-listeners
          {:event "error"
-          :sentinel-group sg
+          :sentinel-group sentinel-group
           :master-name master-name
           :sentinel-spec sentinel-spec
           :exception e})
@@ -203,37 +210,39 @@
     (slaves-balancer slaves)
     master))
 
-(defn- ask-sentinel-master [sg master-name
-                            {:keys [prefer-slave? slaves-balancer]}]
-  (if-let [all-specs (subscribe-all-sentinels sg master-name)]
+(defn- ask-sentinel-master [sentinel-group master-name
+                            {:keys [prefer-slave? slaves-balancer]
+                             :as server-conn}]
+  (if-let [all-specs (subscribe-all-sentinels sentinel-group master-name)]
     (loop [specs all-specs
            tried-specs []]
       (if (seq specs)
-        (if-let [[ms sls] (try-resolve-master-spec specs sg master-name)]
+        (if-let [[master-spec slaves]
+                 (try-resolve-master-spec server-conn specs sentinel-group master-name)]
           (do
             ;;Move the sentinel instance to the first position of sentinel list
             ;;to speedup next time resolving.
-            (vswap! sentinel-groups assoc-in [sg :specs]
+            (vswap! sentinel-groups assoc-in [sentinel-group :specs]
                     (vec (concat specs tried-specs)))
-            (choose-spec master-name ms sls prefer-slave? slaves-balancer))
+            (choose-spec master-name master-spec slaves prefer-slave? slaves-balancer))
           ;;Try next sentinel
           (recur (next specs)
                  (conj tried-specs (first specs))))
         ;;Tried all sentinel instancs, we don't get any valid specs
         ;;Set a :error mark for this situation.
         (do
-          (swap! sentinel-resolved-specs assoc-in [sg master-name]
+          (swap! sentinel-resolved-specs assoc-in [sentinel-group master-name]
                  {:master :error
                   :slaves :error})
           (notify-event-listeners {:event "get-master-addr-by-name"
-                                   :sentinel-group sg
+                                   :sentinel-group sentinel-group
                                    :master-name master-name
                                    :master :error
                                    :slaves :error})
           (throw (IllegalStateException.
                   (str "Specs not found by master name: " master-name))))))
     (throw (IllegalStateException.
-            (str "Missing specs for sentinel group: " sg)))))
+            (str "Missing specs for sentinel group: " sentinel-group)))))
 
 ;;APIs
 (defn remove-invalid-resolved-master-specs!
@@ -272,33 +281,28 @@
    cache the result in memory.
    Recommend to call this function at your app startup  to reduce
    resolving cost."
-  [sg master-name {:keys [prefer-slave? slaves-balancer]
-                   :or {prefer-slave? false
-                        slaves-balancer first}
-                   :as opts}]
-  (when (nil? sg)
-    (throw (IllegalStateException. "Missing sentinel-group.")))
-  (when (empty? master-name)
-    (throw (IllegalStateException. "Missing master-name.")))
-  (if-let [ret (get-in @sentinel-resolved-specs [sg master-name])]
+  [sentinel-group master-name
+   {:keys [prefer-slave? slaves-balancer]
+    :or {prefer-slave? false
+         slaves-balancer first}
+    :as server-conn}]
+  {:pre [(not (nil? sentinel-group))
+         (not (empty? master-name))]}
+  (if-let [resolved-spec (get-in @sentinel-resolved-specs [sentinel-group master-name])]
     (if-let [s (choose-spec master-name
-                            (:master ret)
-                            (:slaves ret)
+                            (:master resolved-spec)
+                            (:slaves resolved-spec)
                             prefer-slave?
                             slaves-balancer)]
       s
-      (throw (IllegalStateException. (str "Spec not found: "
-                                          sg
-                                          "/"
-                                          master-name
-                                          ", "
-                                          opts))))
-    ;;Synchronized on [sg master-name] lock
-    (sync-on sg master-name
+      (throw (IllegalStateException.
+              (str "Spec not found: " sentinel-group "/" master-name ", " server-conn))))
+    ;;Synchronized on [sentinel-group master-name] lock
+    (sync-on sentinel-group master-name
              ;;Double checking
-             (if (nil? (get-in @sentinel-resolved-specs [sg master-name]))
-               (ask-sentinel-master sg master-name opts)
-               (get-sentinel-redis-spec sg master-name opts)))))
+             (if (nil? (get-in @sentinel-resolved-specs [sentinel-group master-name]))
+               (ask-sentinel-master sentinel-group master-name server-conn)
+               (get-sentinel-redis-spec sentinel-group master-name server-conn)))))
 
 (defn set-sentinel-groups!
   "Configure sentinel groups, it will replace current conf:
@@ -345,15 +349,15 @@
   "Cast a carmine-sentinel conn to carmine raw conn spec.
    It will resolve master from sentinel first time,then cache the result in
    memory for reusing."
-  [conn]
-  (if (and (:sentinel-group conn) (:master-name conn))
-    (update conn
+  [server-conn]
+  (if (and (:sentinel-group server-conn) (:master-name server-conn))
+    (update server-conn
             :spec
             merge
-            (get-sentinel-redis-spec (:sentinel-group conn)
-                                     (:master-name conn)
-                                     conn))
-    conn))
+            (get-sentinel-redis-spec (:sentinel-group server-conn)
+                                     (:master-name server-conn)
+                                     server-conn))
+    server-conn))
 
 (defmacro wcar
   "It's the same as taoensso.carmine/wcar, but supports
@@ -450,3 +454,37 @@
      (wcar server1-conn
            (car/set "a" 100)
            (car/get "a")))))
+
+(comment
+
+  (do ;; reset environment
+    (reset! sentinel-resolved-specs nil)
+    (vreset! sentinel-groups nil)
+    (reset! sentinel-listeners nil)
+    (vreset! event-listeners [])
+    (reset! locks nil)
+
+    (let [token "foobar"
+          host "127.0.0.1"]
+
+      (def server1-conn
+        {:pool {}
+         :spec {:password token}
+         :sentinel-group :group1
+         :master-name "mymaster"})
+
+      (set-sentinel-groups!
+       {:group1
+        {:specs [{:host host :port 5000 :password token}
+                 {:host host :port 5001 :password token}
+                 {:host host :port 5002 :password token}]}})))
+
+  (defmacro wcar* [& body] `(wcar server1-conn ~@body))
+
+  (wcar* (car/ping))
+
+  (wcar* (car/set "key" 1))
+
+  (wcar* (car/get "key"))
+
+  )
