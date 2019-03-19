@@ -133,11 +133,13 @@
       (swap! sentinel-listeners dissoc sentinel-spec)
       true)))
 
-(defn- pick-specs-from-sentinel-raw-states [raw-states]
-  (map
-   (fn [{:strs [ip port]}]
-     {:host ip, :port (Integer/valueOf port)})
-   (map (partial apply hash-map) raw-states)))
+(defn- pick-specs-from-sentinel-raw-states
+  [raw-states]
+  (->> raw-states
+       (map (partial apply hash-map))
+       (map (fn [{:strs [ip port]}]
+              {:host ip
+               :port (Integer/valueOf ^String port)}))))
 
 (defn- subscribe-all-sentinels [sentinel-group master-name]
   (when-let [old-sentinel-specs (not-empty (get-in @sentinel-groups [sentinel-group :specs]))]
