@@ -1,7 +1,8 @@
 (ns carmine-sentinel.core
   (:require [taoensso.carmine :as car]
             [taoensso.carmine.commands :as cmds])
-  (:import (java.io EOFException)))
+  (:import (java.io EOFException)
+           (taoensso.carmine Listener)))
 
 ;; {Sentinel group -> master-name -> spec}
 (defonce ^:private sentinel-resolved-specs (atom nil))
@@ -123,6 +124,7 @@
                            :future)]
                 (when (not @stop?)
                   (deref f))))
+            (silently (when-let [l @listener] (.close ^Listener l)))
             (silently (Thread/sleep 1000)))))
       (recur sg spec))))
 
