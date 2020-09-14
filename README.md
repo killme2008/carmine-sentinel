@@ -183,6 +183,10 @@ And Carmine-sentinel subcribes `+switch-master` channel in sentinel.When the mas
 
 At last, carmine-sentinel will refresh the sentinel instance list by the response from command `SENTINEL sentinels [name]`.
 
+In the case where a cached master is not working correctly and the failure has not been detected by the sentinels (for whatever reason) the library will not automatically remove it's cache.
+
+Therefore it is suggested that you call `remove-invalid-resolved-master-specs!` periodically to avoid this situation.
+
 ## API docs
 
 * [Carmine-sentinel APIs](http://fnil.net/docs/carmine_sentinel/)
