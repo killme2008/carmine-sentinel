@@ -257,7 +257,7 @@
       (try
         (when-not (master-role? (:master master-specs))
           (swap! sentinel-resolved-specs dissoc-in [group-id master-name]))
-        (catch EOFException _
+        (catch Exception _
           (swap! sentinel-resolved-specs dissoc-in [group-id master-name]))))))
 
 (defn register-listener!
